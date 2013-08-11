@@ -42,7 +42,6 @@ BootStart:
 ; first word of first page is reset vector program stream should point to it
 
 RxPage:
-    ldi wrdCnt, SPM_PAGESIZE/2
 RxWord:
     rcall SPIxfer
     mov r0, r1
@@ -51,10 +50,10 @@ RxWord:
     ldi tmp1, 0b00000001            ; write to flash buffer
     rcall DoSPM
     adiw ZL, 2						; inc Z pointer by one word
-    dec wrdCnt
-    brne RxWord
+    subi wrdCnt, (512 / SPM_PAGESIZE)
+    brne RxWord						; page not done
     
-    ldi tmp1, 0b00000011            ; page erase
+    ldi tmp1, 0b00000011            ; page erase - master wait 9ms
     rcall DoSPM
     ldi tmp1, 0b00000101            ; page write
     rcall DoSPM
