@@ -3,17 +3,18 @@
 # @version: $Id$
 
 # any AVR MCUs with USI should work
-CC = avr-gcc
 DEVICE = attiny85
+
+CC = avr-gcc
 CFLAGS = -Os -mmcu=$(DEVICE)
 
-all: boot.bin
+all: boot.bin boot.hex
+
+boot.hex: boot.o
+	avr-objcopy -j .text -j .data -O ihex $< $@
 
 boot.bin: boot.o
-	avr-objcopy -j .text -j .data $< $@
-
-#boot.o:
-#	avr-gcc $(CFLAGS) -c -o boot.o boot.S
+	avr-objcopy -j .text -j .data -O binary $< $@
 
 .S.o:
 	$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
