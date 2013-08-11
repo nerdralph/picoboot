@@ -17,6 +17,8 @@
 #define wrdCnt	r17
 #define pgCnt	r18
 
+#define LOWBYTE(word) (word & 0xff)
+
 .text
 .org 0x0000
 IntVectors:
@@ -44,40 +46,46 @@ BootStart:
 RxPage:
 RxWord:
     rcall SPIxfer
-    mov r0, r1
+    mov r0, tmp1
     rcall SPIxfer
+	mov r1, tmp1
 
-    ldi tmp1, 0b00000001            ; write to flash buffer
+;    ldi tmp1, 0b00000001            ; write to flash buffer
+;   programmer sends flash write command
     rcall DoSPM
     adiw ZL, 2						; inc Z pointer by one word
     subi wrdCnt, (512 / SPM_PAGESIZE)
     brne RxWord						; page not done
     
-    ldi tmp1, 0b00000011            ; page erase - master wait 9ms
+;    ldi tmp1, 0b00000011            ; page erase - master wait 9ms
+;   programmer sends flash erase command
     rcall DoSPM
-    ldi tmp1, 0b00000101            ; page write
+;    ldi tmp1, 0b00000101            ; page write
+;   programmer sends page write command
     rcall DoSPM
     dec pgCnt
     brne RxPage
 
 ; SPIxfer subroutine for slave
 ; stores received data in r1
-SPIxfer:
-;    out USIDR, tmp1
 SPIwait:
 	adiw XL, 1
-	brne NoTimeout
+	brne SPIxfer
 ; timeout after 7 cycles (SPIwait loop) * 65536 = ~50ms @ 8Mhz
+; reset SP & jump to application code
+	ldi	tmp1, LOWBYTE(RAMEND)
+	out SPL, tmp1
 	rjmp AppStart
-NoTimeout:
+SPIxfer:
     sbis USISR, USIOIF
     rjmp SPIwait
     sbi USISR, USIOIF               ; clear USIOIF 
-    in  r1, USIBR
+    in  tmp1, USIBR
     ret
 
 ; execute program memory command stored in register tmp1
 DoSPM:
+	rcall SPIxfer 
     out SPMCSR, tmp1
     spm
     ret
