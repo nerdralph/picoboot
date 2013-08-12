@@ -13,6 +13,7 @@
 /* AVR CPU definitions based on -mmcu flag */
 #include <avr/io.h>
 
+#define BOOTPIN	PINB3
 #define tmp1	r16
 #define blank	r18
 
@@ -28,10 +29,12 @@ AppStart:
 
 .org (FLASHEND - SPM_PAGESIZE + 1)
 BootStart:
+	sbis PINB, BOOTPIN 				; run bootloader if BOOTPIN high
+	rjmp AppStart					; jump to application code
 ; set SPI slave
     ldi tmp1,(1<<USIWM0)|(1<<USICS1)
     out USICR, tmp1
-	sbi DDRB, DDB1
+	sbi DDRB, DDB1					; set BP1 to output
     out USIDR, tmp1					; signature byte = 0x18
 
 ; flash the full memory space
@@ -56,17 +59,9 @@ CommandLoop:
 ; SPIxfer subroutine for slave
 ; stores received data in r1
 SPIwait:
-	adiw XL, 1
-	brne SPICheckReady
-; timeout after 7 cycles (SPIwait loop) * 65536 = ~50ms @ 8Mhz
-	ldi	tmp1, LOWBYTE(RAMEND)
-	out SPL, tmp1					; reset stack pointer
-	rjmp AppStart					; jump to application code
 SPIxfer:
-	movw XL, blank    				; zero timeout counter
-SPICheckReady:
     sbis USISR, USIOIF
-    rjmp SPIwait
+    rjmp SPIxfer
     sbi USISR, USIOIF               ; clear USIOIF 
     in  tmp1, USIBR
     ret
