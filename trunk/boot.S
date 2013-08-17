@@ -13,9 +13,9 @@
 /* AVR CPU definitions based on -mmcu flag */
 #include <avr/io.h>
 
-#define BOOTPIN	PINB3
+#define BOOTPIN	PINB0
 #define tmp1	r16
-#define blank	r18
+#define dataOut	r17
 
 #define LOWBYTE(word) (word & 0xff)
 
@@ -24,10 +24,12 @@
 IntVectors:
 	rjmp BootStart 
 
-.org _VECTORS_SIZE
+; .org _VECTORS_SIZE
+.org (FLASHEND - SPM_PAGESIZE - 1)
 AppStart:
-
-.org (FLASHEND - SPM_PAGESIZE + 1)
+	rjmp 0							; dummy vector to be overwritten
+; .org (FLASHEND - SPM_PAGESIZE + 1)
+; beginning of last page of memory
 BootStart:
 	sbis PINB, BOOTPIN 				; run bootloader if BOOTPIN high
 	rjmp AppStart					; jump to application code
@@ -35,7 +37,8 @@ BootStart:
     ldi tmp1,(1<<USIWM0)|(1<<USICS1)
     out USICR, tmp1
 	sbi DDRB, DDB1					; set BP1 to output
-    out USIDR, tmp1					; signature byte = 0x18
+; USIDR wrapps - bytes will echo back to programmer
+;    out USIDR, tmp1					; signature byte = 0x18
 
 ; flash the full memory space
 ;    ldi pgCnt, (FLASHEND / SPM_PAGESIZE)
@@ -49,25 +52,27 @@ CommandLoop:
 	mov r1, tmp1
 
     rcall DoSPM
-	sbrc tmp1, 7					; bit 7 = set Z 
-	movw ZL, r0						; set Z pointer
-	sbrc tmp1, 6					; bit 6 = increment
+	sbrc tmp1, 6					; command bit 6 = increment
     adiw ZL, 2						; inc Z pointer by one word
+	sbrc tmp1, 7					; command bit 7 = set Z 
+	movw ZL, r0						; set Z pointer
 	tst tmp1
     brne CommandLoop				; not done
+	; done programming - bootloader falls into SPIxfer forever loop
 
 ; SPIxfer subroutine for slave
 ; stores received data in r1
-SPIwait:
 SPIxfer:
     sbis USISR, USIOIF
     rjmp SPIxfer
     sbi USISR, USIOIF               ; clear USIOIF 
+    out USIDR, dataOut				; data out
     in  tmp1, USIBR
     ret
 
 ; execute program memory command stored in register tmp1
 DoSPM:
+	lpm dataOut, Z					; lpm even when we don't need to
 	rcall SPIxfer 
     out SPMCSR, tmp1
     spm
