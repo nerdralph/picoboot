@@ -13,7 +13,10 @@ all: boot.bin boot.hex
 boot.hex: boot.o
 	avr-objcopy -j .text -j .data -O ihex $< $@
 
-boot.bin: boot.o
+boot: boot.o
+	$(CC) -o $@ $<
+
+boot.bin: boot
 	avr-objcopy -j .text -j .data -O binary $< $@
 
 .S.o:
