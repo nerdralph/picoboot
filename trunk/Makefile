@@ -22,3 +22,5 @@ boot.bin: boot
 .S.o:
 	$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 
+clean:
+	rm boot.o boot
