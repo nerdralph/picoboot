@@ -17,12 +17,19 @@
 #define BOOTPIN	PINB5
 #define tmp1	r16
 #define dataOut	r17
-#define word0Save r24
+#define bootAddrLo r18
+#define bootAddrHi r19
+#define tmpWordLo r20
+#define tmpWordHi r21
 
 /* bit 6 set for SPM instructions */
 #define SPMbit	3
 
 #define LOWBYTE(word) (word & 0xff)
+#define HIBYTE(word) ((word & 0xff00) >> 8) 
+
+#define APPEND	(FLASHEND - (SPM_PAGESIZE * 2))
+#define LASTPAGE	(FLASHEND - (SPM_PAGESIZE) +1 )
 
 .text
 .org 0x0000
@@ -30,17 +37,51 @@ IntVectors:
 	rjmp BootStart 
 
 ; .org _VECTORS_SIZE
-.org (FLASHEND - (SPM_PAGESIZE * 2) - 1)
-AppStart:
-	rjmp 0							; dummy vector to be overwritten
-; .org (FLASHEND - SPM_PAGESIZE + 1)
-; beginning of last page of memory
+
+; bootloader needs 128 bytes (rounded up to page size)
+.org (FLASHEND - 127)
+;   could we save cycles by ori SPMEN with flags passed?
+DoSafeSPM:
+    ; protect bootloader 
+	movw tmpWordLo, ZL
+	; subtract bootloader start address
+	subi tmpWordLo, LOWBYTE(APPEND)
+	sbci tmpWordHi, HIBYTE(APPEND)
+	brcc DoSPM
+	ret								; block write to bootloader section
+    sbiw ZL, 0
+	brne DoSPM
+	movw tmpWordLo, r0
+	; now replace r0, r1 with bootload vector
+	lpm r0, Z+
+	lpm r1, Z
+	dec ZL							; reset Z to 0
+DoSPM:
+    out SPMCSR, tmp1
+    spm
+	ret
+
 BootStart:
+; prep last page of memory to store application boot vector
+	ldi ZL, LOWBYTE(LASTPAGE)
+	ldi ZH, HIBYTE(LASTPAGE)
+	ldi tmp1, (1<<SPMEN) 
+CopyPage:
+	lpm r0, Z+
+	lpm	r1, Z+
+	rcall DoSPM
+	cpi ZL, 0xfc		 			; application vector storage
+	brcs CopyPage
+	ldi tmp1, ((1<<PGERS)|(1<<SPMEN)) 
+	rcall DoSPM						; erase page
+	ldi tmp1, ((1<<PGWRT)|(1<<SPMEN)) 
+	rcall DoSPM						; write page
 	sbis PINB, BOOTPIN 				; run bootloader if BOOTPIN high
 	rjmp AppStart					; jump to application code
 ; set SPI slave
-;    ldi tmp1,(1<<USIWM0)|(1<<USICS1)
-;    out USICR, tmp1
+; TODO - check if setting DDRB1 to output is sufficient
+    ldi tmp1,(1<<USIWM0)|(1<<USICS1)
+    out USICR, tmp1
 	sbi DDRB, DDB1					; set BP1 to output
 ; USIDR wrapps - bytes will echo back to programmer
 
@@ -64,10 +105,10 @@ CommandLoop:
 	sbic GPIOR0, 2					; bit 2 set for page write
 	rjmp LoopEnd					; fill page buffer
 	ldi tmp1, ((1<<PGERS)|(1<<SPMEN)) 
-	rcall DoSPM
+	rcall DoSafeSPM
 	ldi tmp1, ((1<<PGWRT)|(1<<SPMEN)) 
 LoopEnd:
-	rcall DoSPM
+	rcall DoSafeSPM
 	rjmp CommandLoop
 
 ; SPIxfer subroutine for slave
@@ -88,15 +129,8 @@ ReadZ:
 	mov ZH, tmp1
 	ret
 
-;   could we save cycles by ori SPMEN with flags passed 
-DoSPM:
-    ; protect bootloader vector
-    sbiw ZL, 0
-	brne NotBootVect
-	movw word0Save, r0
-	lpm
+.org (FLASHEND - 3)
+AppStart:
+	rjmp IntVectors					; to be overwritten app address 0
+	rjmp IntVectors + 2
 
-NotBootVect:
-    out SPMCSR, tmp1
-    spm
-	ret
