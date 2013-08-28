@@ -40,15 +40,16 @@ IntVectors:
 
 ; bootloader needs 128 bytes (rounded up to page size)
 .org (FLASHEND - 127)
-;   could we save cycles by ori SPMEN with flags passed?
-DoSafeSPM:
-    ; protect bootloader 
+; check Z pointer to see if it points to bootloader section
+; Carry clear if OK
+CheckSPM:
 	movw tmpWordLo, ZL
 	; subtract bootloader start address
 	subi tmpWordLo, LOWBYTE(APPEND)
 	sbci tmpWordHi, HIBYTE(APPEND)
 	brcc DoSPM
 	ret								; block write to bootloader section
+DoSafeSPM:
     sbiw ZL, 0
 	brne DoSPM
 	movw tmpWordLo, r0
@@ -56,6 +57,7 @@ DoSafeSPM:
 	lpm r0, Z+
 	lpm r1, Z
 	dec ZL							; reset Z to 0
+;   could we save cycles by ori SPMEN with flags passed?
 DoSPM:
     out SPMCSR, tmp1
     spm
@@ -90,7 +92,7 @@ CopyPage:
 
 ;   return point for load memory page low byte
 LoadL:
-	mov r0, tmp1	
+	mov r0, tmp1					; load low byte
 CommandLoop:
 	rcall SPIxfer					; read instruction
 	out	GPIOR0, tmp1				; save command
@@ -100,12 +102,14 @@ CommandLoop:
 	rcall SPIxfer 
 	sbis GPIOR0, SPMbit				; check if this is a SPM command
 	rjmp LoadL
-	mov r1, tmp1	
+	mov r1, tmp1					; load hi byte
 	ldi tmp1, (1<<SPMEN) 
 	sbic GPIOR0, 2					; bit 2 set for page write
-	rjmp LoopEnd					; fill page buffer
+	rjmp LoopEnd					; write to page buffer
+	rcall CheckSPM					; make sure we dont erase bootloader
+	brcs CommandLoop				; skip write
 	ldi tmp1, ((1<<PGERS)|(1<<SPMEN)) 
-	rcall DoSafeSPM
+	rcall DoSPM
 	ldi tmp1, ((1<<PGWRT)|(1<<SPMEN)) 
 LoopEnd:
 	rcall DoSafeSPM
