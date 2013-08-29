@@ -53,7 +53,8 @@ DoSafeSPM:
 	; now replace r0, r1 with current bootload vector
 	lpm r0, Z+
 	lpm r1, Z
-	clr ZL							; reset Z to 0
+	; bit 0 of Z is ignored for spm so no need to clear it
+	; clr ZL							; reset Z to 0
 DoSPM:
 	ori spmArg, (1<<SPMEN) 
     out SPMCSR, spmArg
@@ -64,7 +65,7 @@ BootStart:
 ; prep last page of memory to store application boot vector
 	ldi ZL, LOWBYTE(LASTPAGE)
 	ldi ZH, HIBYTE(LASTPAGE)
-CopyPage:
+CopyPage:							; 9 opcodes - 18 bytes
 	lpm r0, Z+
 	lpm	r1, Z+
 	rcall DoSPM 
@@ -76,12 +77,11 @@ CopyPage:
 	rcall DoSPM						; write page
 	sbis PINB, BOOTPIN 				; run bootloader if BOOTPIN high
 	rjmp AppStart					; jump to application code
-; set SPI slave
-; TODO - check if setting DDRB1 to output is sufficient
+; set SPI slave mode
     ldi tmp1,(1<<USIWM0)|(1<<USICS1)
     out USICR, tmp1
-	; no need to set DO pin as output in USI slave
-	; see datasheet on DO pin overrie
+	; no need to set DO pin as output in USI slave mode
+	; see datasheet on DO pin override
 	;sbi DDRB, DDB1					; set BP1 to output
 ; USIDR wrapps - bytes will echo back to programmer
 
