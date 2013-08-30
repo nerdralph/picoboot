@@ -17,16 +17,19 @@
 #define BOOTPIN	PINB5
 #define tmp1	r16
 #define spmArg	r17
-#define bootAddrLo r18
-#define bootAddrHi r19
+#define dataPageLo r18
+#define dataPageHi r19
 #define tmpWordLo r20
 #define tmpWordHi r21
+#define chipErased r22
+#define appJumpLo r24
+#define appJumpHi r25
 
 #define LOWBYTE(word) (word & 0xff)
 #define HIBYTE(word) ((word & 0xff00) >> 8) 
 
-#define APPEND	(FLASHEND - (SPM_PAGESIZE * 2))
-#define LASTPAGE	(FLASHEND - (SPM_PAGESIZE) +1 )
+#define DATAPAGE (FLASHEND - 127 - SPM_PAGESIZE)
+#define LASTPAGE (FLASHEND - (SPM_PAGESIZE) +1 )
 
 .text
 .org 0x0000
@@ -35,21 +38,40 @@ IntVectors:
 
 ; .org _VECTORS_SIZE
 
-; bootloader needs 128 bytes (rounded up to page size)
-.org (FLASHEND - 127)
+.org (FLASHEND - 129)
+; rjmp to start of application goes in last 2 bytes of page before bootloader
+AppStart:
+	rjmp IntVectors					; to be overwritten app address 0
+; page starts here	
+	rjmp IntVectors + 2
+
+; save application boot vector
+SaveAppStart:
+	movw ZL, dataPageLo
+
 ; check Z pointer to see if it points to bootloader section
-; Carry clear if OK
-DoCheckSPM:
+ErasePage:
+	mov spmArg, chipErased
 	movw tmpWordLo, ZL
 	; subtract bootloader start address
-	subi tmpWordLo, LOWBYTE(APPEND)
-	sbci tmpWordHi, HIBYTE(APPEND)
+	subi tmpWordLo, LOWBYTE(DATAPAGE)
+	sbci tmpWordHi, HIBYTE(DATAPAGE)
 	brcc DoSPM
 	ret								; block write to bootloader section
+	
+WritePage:
+	rcall ErasePage
+	ldi spmArg, ((1<<PGWRT)|(1<<SPMEN)) 
+	rcall DoSPM
+	; check if AppJump needs to be written
+	sbiw appJumpLo, 0
+	brne CommandLoop
+	rjmp SaveAppStart
+
 DoSafeSPM:
     sbiw ZL, 0
 	brne DoSPM
-	movw tmpWordLo, r0
+	movw appJumpLo, r0				; save application starting opcode
 	; now replace r0, r1 with current bootload vector
 	lpm r0, Z+
 	lpm r1, Z
@@ -61,22 +83,19 @@ DoSPM:
     spm
 	ret
 
+ChipErase:
+	ldi chipErased, (1<<PGERS)
+	movw ZL, dataPageLo
+	rcall ErasePage
+	ret
+
 BootStart:
-; prep last page of memory to store application boot vector
-	ldi ZL, LOWBYTE(LASTPAGE)
-	ldi ZH, HIBYTE(LASTPAGE)
-CopyPage:							; 9 opcodes - 18 bytes
-	lpm r0, Z+
-	lpm	r1, Z+
-	rcall DoSPM 
-	cpi ZL, 0xfc		 			; application vector storage
-	brcs CopyPage
-	ldi tmp1, ((1<<PGERS)|(1<<SPMEN)) 
-	rcall DoSPM						; erase page
-	ldi tmp1, ((1<<PGWRT)|(1<<SPMEN)) 
-	rcall DoSPM						; write page
 	sbis PINB, BOOTPIN 				; run bootloader if BOOTPIN high
 	rjmp AppStart					; jump to application code
+
+	ldi dataPageLo, LOWBYTE(DATAPAGE)
+	ldi dataPageHi, HIBYTE(DATAPAGE)
+
 ; set SPI slave mode
     ldi tmp1,(1<<USIWM0)|(1<<USICS1)
     out USICR, tmp1
@@ -95,7 +114,10 @@ CommandLoop:
 	rcall SPIxfer					; read instruction
 	out	GPIOR0, tmp1				; save command
 	bst tmp1, 3						; bit 3 set for read hi byte 
-	rcall ReadZ
+	rcall SPIxfer
+	sbis USIBR, 7					; chip erase command
+	rcall ChipErase
+	;rcall ReadZ
 	bld ZL, 0						; set bit 0 for hi byte
 	lpm tmp1, Z						; lpm even when we don't need to
 	out USIDR, tmp1
@@ -105,13 +127,7 @@ CommandLoop:
 	mov r1, tmp1					; load hi byte
 	ldi spmArg, (1<<SPMEN) 
 	sbic GPIOR0, 2					; bit 2 set for page write
-	rjmp LoopEnd					; write to page buffer
-	ldi spmArg, ((1<<PGERS)|(1<<SPMEN)) 
-	rcall DoCheckSPM				; make sure we dont erase bootloader
-	;brcs CommandLoop				; skip write
-	; OK to fall through loop since page write w/o page erase does nothing
-	ldi spmArg, ((1<<PGWRT)|(1<<SPMEN)) 
-LoopEnd:
+	rjmp WritePage					; WritePage jumps to CommandLoop
 	rcall DoSafeSPM
 	rjmp CommandLoop
 
@@ -134,9 +150,4 @@ ReadZ:
 	rol tmp1						; word to byte addr
 	mov ZH, tmp1
 	ret
-
-.org (FLASHEND - 3)
-AppStart:
-	rjmp IntVectors					; to be overwritten app address 0
-	rjmp IntVectors + 2
 
