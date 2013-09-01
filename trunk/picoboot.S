@@ -45,20 +45,15 @@ AppStart:
 ; page starts here	
 	rjmp IntVectors + 2
 
-; save application boot vector
+; save application boot vector by writing to DATAPAGE
 SaveAppStart:
 	movw ZL, dataPageLo
-
-; check Z pointer to see if it points to bootloader section
-ErasePage:
-	mov spmArg, chipErased
-	movw tmpWordLo, ZL
-	; subtract bootloader start address
-	subi tmpWordLo, LOWBYTE(DATAPAGE)
-	sbci tmpWordHi, HIBYTE(DATAPAGE)
-	brcc DoSPM
-	ret								; block write to bootloader section
+	movw r0, appJumpLo 
+	rcall DoSPM
+	movw appJumpLo, r2				; zero appJump	
+	rjmp WritePage
 	
+; write page buffer to flash - jumps to CommandLoop when done
 WritePage:
 	rcall ErasePage
 	ldi spmArg, ((1<<PGWRT)|(1<<SPMEN)) 
@@ -68,6 +63,22 @@ WritePage:
 	brne CommandLoop
 	rjmp SaveAppStart
 
+ChipErase:
+	ldi chipErased, (1<<PGERS)
+	movw ZL, dataPageLo
+; fall into ErasePage
+
+; check Z pointer to see if it points to bootloader section
+ErasePage:
+	mov spmArg, chipErased
+	;movw tmpWordLo, ZL
+	; subtract bootloader start address
+	;subi tmpWordLo, LOWBYTE(DATAPAGE)
+	;sbci tmpWordHi, HIBYTE(DATAPAGE)
+	cpi ZL, HIBYTE(DATAPAGE)		; 256 byte protection area
+	brcs DoSPM
+	ret								; block write to bootloader section
+
 DoSafeSPM:
     sbiw ZL, 0
 	brne DoSPM
@@ -75,22 +86,16 @@ DoSafeSPM:
 	; now replace r0, r1 with current bootload vector
 	lpm r0, Z+
 	lpm r1, Z
-	; bit 0 of Z is ignored for spm so no need to clear it
-	; clr ZL							; reset Z to 0
+	; fall through to DoSPM
 DoSPM:
 	ori spmArg, (1<<SPMEN) 
     out SPMCSR, spmArg
     spm
 	ret
 
-ChipErase:
-	ldi chipErased, (1<<PGERS)
-	movw ZL, dataPageLo
-	rcall ErasePage
-	ret
-
 BootStart:
-	sbis PINB, BOOTPIN 				; run bootloader if BOOTPIN high
+	; sbi PORTB, BOOTPIN 				; enable pullup
+	sbic PINB, BOOTPIN 				; run bootloader if BOOTPIN low
 	rjmp AppStart					; jump to application code
 
 	ldi dataPageLo, LOWBYTE(DATAPAGE)
@@ -102,52 +107,50 @@ BootStart:
 	; no need to set DO pin as output in USI slave mode
 	; see datasheet on DO pin override
 	;sbi DDRB, DDB1					; set BP1 to output
-; USIDR wrapps - bytes will echo back to programmer
 
 ; implements Serial Programming Instruction per ATtinyx5 datasheet
 ; 4 byte format starting with a 1-byte instruction
 
 ;   return point for load memory page low byte
 LoadL:
-	mov r0, tmp1					; load low byte
+	mov r0, r1					; load low byte
 CommandLoop:
 	rcall SPIxfer					; read instruction
-	out	GPIOR0, tmp1				; save command
+	out	GPIOR0, r1					; save command
 	bst tmp1, 3						; bit 3 set for read hi byte 
 	rcall SPIxfer
-	sbis USIBR, 7					; chip erase command
+	sbrs r1, 7						; chip erase command
 	rcall ChipErase
-	;rcall ReadZ
+	rcall ReadZ
 	bld ZL, 0						; set bit 0 for hi byte
 	lpm tmp1, Z						; lpm even when we don't need to
 	out USIDR, tmp1
-	rcall SPIxfer 
-	sbis GPIOR0, 3					; do we need to do SPM?
-	rjmp LoadL
-	mov r1, tmp1					; load hi byte
+	rcall SPIxfer 					; read hi byte into r1
+	sbis GPIOR0, 6					; do we need to do SPM?
+	rjmp LoadL						; ! load pg buf or write pg cmd
 	ldi spmArg, (1<<SPMEN) 
 	sbic GPIOR0, 2					; bit 2 set for page write
 	rjmp WritePage					; WritePage jumps to CommandLoop
-	rcall DoSafeSPM
+	rcall DoSafeSPM					; write page buffer
 	rjmp CommandLoop
 
 ; SPIxfer subroutine for slave
-; received data in USIBR copied to tmp1
+; received data copied to r1
 ; min 4 cycles + return (4) = 8 cycles
 SPIxfer:
     sbis USISR, USIOIF
     rjmp SPIxfer
     sbi USISR, USIOIF               ; clear USIOIF 
-    in  tmp1, USIBR
+    in  r1, USIDR
     ret
 
-; read low & high byte into Z register
+; put low & high byte into Z register
+; load low into tmp1 before calling
 ReadZ:
-    rcall SPIxfer					; read low byte
-	rol tmp1						; word to byte addr
-    mov ZL, tmp1
+	lsl r1							; word to byte addr
+    mov ZL, r1
     rcall SPIxfer					; read high byte
-	rol tmp1						; word to byte addr
-	mov ZH, tmp1
+	rol r1							; word to byte addr
+    mov ZH, r1
 	ret
 
