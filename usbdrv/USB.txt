@@ -1,0 +1,7 @@
+The bootloader needs to implement a USB client.  It is based the V-USB code
+with modifications to reduce code size and simplify the hardware.
+V-USB site: http://www.obdev.at/products/vusb/index.html
+I suggest running the AVR at 3.3v with a 1.7v red LED from Vbus (which doubles
+as a power LED).  Two pins from the AVR connect directly to the D+ and D-
+lines - no other components required.
+
