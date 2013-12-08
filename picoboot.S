@@ -25,9 +25,6 @@
 #define appJumpLo r24
 #define appJumpHi r25
 
-#define LOWBYTE(word) (word & 0xff)
-#define HIBYTE(word) ((word & 0xff00) >> 8) 
-
 #define DATAPAGE (FLASHEND - 127 - SPM_PAGESIZE)
 #define LASTPAGE (FLASHEND - (SPM_PAGESIZE) +1 )
 
@@ -73,9 +70,9 @@ ErasePage:
 	mov spmArg, chipErased
 	;movw tmpWordLo, ZL
 	; subtract bootloader start address
-	;subi tmpWordLo, LOWBYTE(DATAPAGE)
-	;sbci tmpWordHi, HIBYTE(DATAPAGE)
-	cpi ZL, HIBYTE(DATAPAGE)		; 256 byte protection area
+	;subi tmpWordLo, lo8(DATAPAGE)
+	;sbci tmpWordHi, hi8(DATAPAGE)
+	cpi ZL, hi8(DATAPAGE)		; 256 byte protection area
 	brcs DoSPM
 	ret								; block write to bootloader section
 
