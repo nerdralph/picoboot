@@ -37,11 +37,13 @@ IntVectors:
 	rjmp BootStart 
 
 ; .org _VECTORS_SIZE
-;.org (FLASHEND - SPM_PAGESIZE - 1)
+.org (FLASHEND - SPM_PAGESIZE - 1)
 AppStart:
 	rjmp 0							; dummy vector to be overwritten
-; .org (FLASHEND - SPM_PAGESIZE + 1)
 ; beginning of last page of memory
+; include virtual boot vector code
+#include "tinyBoot.S" 
+
 BootStart:
 	sbis PINB, BOOTPIN 				; run bootloader if BOOTPIN high
 	rjmp AppStart					; jump to application code
@@ -57,35 +59,50 @@ CommandLoop:
 	mov ZH, rDEST
 	rcall RxByte
 	mov ZL, rDEST					; Z stores address for page load
+	rcall HandleEOP
 CheckProgPage:
 	cpi rCOMMAND, STK_PROG_PAGE
 	brne Default
-	rcall RxByte					; ignore block size hi byte
-	rcall RxByte
-	mov rTEMP, rDEST				; block size
-	rcall RxByte					; ignore memory type - only flash support
+	rcall GetPageParams
 PageFill:
 	rcall RxByte
 	mov r1, rDEST
 	rcall RxByte
 	mov r0, rDEST
 	rcall DoSPM
+	adiw ZL, 2						; increment Z pointer
 	subi rTEMP, 2
 	brne PageFill
+CheckRead:
+	cpi rCOMMAND, STK_READ_PAGE
+	brne Default
+	rcall GetPageParams
+ReadPage:
+	lpm rSOURCE, Z+
+	rcall TxByte
+	dec rTEMP
+	brne ReadPage
 Default:
+	ldi rSOURCE, STK_OK 
+	rcall TxByte
+    rjmp CommandLoop
+	; done programming
+
+; get length and flash type for write or read page
+; length stored in rTemp
+; fall into HandleEOP
+GetPageParams:
+	rcall RxByte					; ignore block size hi byte
+	rcall RxByte
+	mov rTEMP, rDEST				; block size
+	rcall RxByte					; ignore memory type - only flash support
+
+; read EOP and respond with INSYNC
+HandleEOP:
 	rcall RxByte					; read EOP
 	ldi rSOURCE, STK_INSYNC 
 	rcall TxByte
-	ldi rSOURCE, STK_OK 
-	rcall TxByte
-    brne CommandLoop				; not done
-	; done programming - bootloader falls into SPIxfer forever loop
-
-; execute program memory command 
-DoSPM:
-    out SPMCSR, 0x01
-    spm
-    ret
+	ret
 
 /* TxByte(rSOURCE) and rDEST RxByte */
 #include "AVR305.S"
