@@ -17,8 +17,8 @@
 
 #include "stk500.h"
 
-#define BOOTPIN	PINB0
 #define UART_Port PORTB
+#define UART_DDR DDRB
 #define UART_Tx PINB1
 #define UART_Rx PINB2
 
@@ -29,15 +29,18 @@
 #define rSOURCE r25
 #define rDEST r25
 
-#define LOWBYTE(word) (word & 0xff)
+/* code size in bytes rounded up to page size */
+#define CODESIZE 256
 
-.text
+.section .vectors
 .org 0x0000
 IntVectors:
 	rjmp BootStart 
 
+.text
 ; .org _VECTORS_SIZE
-.org (FLASHEND - SPM_PAGESIZE - 1)
+;.org (FLASHEND - SPM_PAGESIZE - 1)
+; use -WL,--section-start=.text=0x1f00 for t85
 AppStart:
 	rjmp 0							; dummy vector to be overwritten
 ; beginning of last page of memory
@@ -45,14 +48,16 @@ AppStart:
 #include "tinyBoot.S" 
 
 BootStart:
-	sbis PINB, BOOTPIN 				; run bootloader if BOOTPIN high
+	sbis UART_Port, UART_Rx 		; run bootloader if serial connected
 	rjmp AppStart					; jump to application code
-	sbi DDRB, DDB1					; set Tx line to output
+	sbi UART_DDR, UART_Tx			; set Tx line to output
 
 ; Z pointer starts at program address 0
 CommandLoop:
 	rcall RxByte					; read command
 	mov rCOMMAND, rDEST
+	cpi rCOMMAND, 0x0d				; CR = start app
+	breq AppStart
 	cpi rCOMMAND, STK_LOAD_ADDRESS
 	brne CheckProgPage
 	rcall RxByte
@@ -78,6 +83,17 @@ CheckRead:
 	brne Default
 	rcall GetPageParams
 ReadPage:
+	; read reset vector?
+	tst ZH
+	brne ReadByte
+	cpi ZL, 1
+	brne CheckAddr0
+	ldi ZL, lo8(FLASHEND - CODESIZE)
+	ldi ZH, hi8(FLASHEND - CODESIZE)
+CheckAddr0:
+	brcc ReadByte
+	dec ZL
+ReadByte:
 	lpm rSOURCE, Z+
 	rcall TxByte
 	dec rTEMP
@@ -86,7 +102,6 @@ Default:
 	ldi rSOURCE, STK_OK 
 	rcall TxByte
     rjmp CommandLoop
-	; done programming
 
 ; get length and flash type for write or read page
 ; length stored in rTemp
