@@ -17,17 +17,8 @@
 
 #include "stk500.h"
 
-#define UART_Port PORTB
-#define UART_DDR DDRB
-#define UART_Tx PINB1
-#define UART_Rx PINB2
-
 #define rCOMMAND r16
 #define rTEMP r18
-
-/* defines for AVR305.S */
-#define rSOURCE r25
-#define rDEST r25
 
 /* code size in bytes rounded up to page size */
 #define CODESIZE 256
@@ -35,7 +26,7 @@
 .section .vectors
 .org 0x0000
 IntVectors:
-	rjmp BootStart 
+	rjmp BootInit 
 
 .text
 ; .org _VECTORS_SIZE
@@ -47,33 +38,35 @@ AppStart:
 ; include virtual boot vector code
 #include "tinyBoot.S" 
 
-BootStart:
+/* TxByte(r24) and r24 RxByte */
+#include "BBUart.S"
+
+Boot:
 	sbis UART_Port, UART_Rx 		; run bootloader if serial connected
-	rjmp AppStart					; jump to application code
-	sbi UART_DDR, UART_Tx			; set Tx line to output
+	rjmp StartApp					; jump to application code
 
 ; Z pointer starts at program address 0
 CommandLoop:
 	rcall RxByte					; read command
-	mov rCOMMAND, rDEST
+	mov rCOMMAND, r24
 	cpi rCOMMAND, 0x0d				; CR = start app
 	breq AppStart
 	cpi rCOMMAND, STK_LOAD_ADDRESS
 	brne CheckProgPage
 	rcall RxByte
-	mov ZH, rDEST
+	mov ZH, r24
 	rcall RxByte
-	mov ZL, rDEST					; Z stores address for page load
+	mov ZL, r24					; Z stores address for page load
 	rcall HandleEOP
 CheckProgPage:
 	cpi rCOMMAND, STK_PROG_PAGE
-	brne Default
+	brne CheckRead
 	rcall GetPageParams
 PageFill:
 	rcall RxByte
-	mov r1, rDEST
+	mov r1, r24
 	rcall RxByte
-	mov r0, rDEST
+	mov r0, r24
 	rcall DoSPM
 	adiw ZL, 2						; increment Z pointer
 	subi rTEMP, 2
@@ -83,7 +76,7 @@ CheckRead:
 	brne Default
 	rcall GetPageParams
 ReadPage:
-	; read reset vector?
+	; check if this is a read of the reset vector
 	tst ZH
 	brne ReadByte
 	cpi ZL, 1
@@ -94,12 +87,12 @@ CheckAddr0:
 	brcc ReadByte
 	dec ZL
 ReadByte:
-	lpm rSOURCE, Z+
+	lpm r24, Z+
 	rcall TxByte
 	dec rTEMP
 	brne ReadPage
 Default:
-	ldi rSOURCE, STK_OK 
+	ldi r24, STK_OK 
 	rcall TxByte
     rjmp CommandLoop
 
@@ -109,16 +102,13 @@ Default:
 GetPageParams:
 	rcall RxByte					; ignore block size hi byte
 	rcall RxByte
-	mov rTEMP, rDEST				; block size
+	mov rTEMP, r24				; block size
 	rcall RxByte					; ignore memory type - only flash support
 
 ; read EOP and respond with INSYNC
 HandleEOP:
 	rcall RxByte					; read EOP
-	ldi rSOURCE, STK_INSYNC 
+	ldi r24, STK_INSYNC 
 	rcall TxByte
 	ret
-
-/* TxByte(rSOURCE) and rDEST RxByte */
-#include "AVR305.S"
 
