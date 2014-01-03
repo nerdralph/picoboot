@@ -1,4 +1,4 @@
-/* AVR305 half-duplex serial uart implementation in 25 instructions
+/* AVR305 half-duplex serial uart implementation in 28 instructions
  * hard-coded for 81N, 115.2kbps @8Mhz = 69.4 cycles/bit
  * @16Mhz = 139 cycles/bit
  * @author: Ralph Doncaster
@@ -8,8 +8,9 @@
 #define bitcnt r19
 #define delayArg r24
 
-; transmit byte contained in rSOURCE - 11 instructions
+; transmit byte contained in rSOURCE - 12 instructions
 TxByte:
+	sbi UART_DDR, UART_Tx			; set Tx line to output
 	ldi bitcnt, 10					; 1 start + 8 bit + 1 stop
 	com rSOURCE						; invert and set carry
 TxLoop:
@@ -46,11 +47,15 @@ WaitStart:
 RxBit:
 	rcall Delay3Cycle				; delay and clear carry
 	; 6 cycle loop
+	; adiw delayArg, 19 clears carry 
 	ldi delayArg, 19				; 3 * 19 - 1 = 56 cycles
 	;ldi delayArg, 40 for 16Mhz
 	sbic UART_Port, UART_Rx
 	sec
 	ror rDEST
 	brcc RxBit
-	ret
+	; fall into UartInit
 
+UartInit:
+	sbi UART_Port, UART_Tx			; set Tx line to idle state (high)
+	ret
