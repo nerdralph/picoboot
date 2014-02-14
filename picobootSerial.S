@@ -30,7 +30,7 @@
 #define UART_Rx 0
 #define UART_Tx 1
 #define RXDELAY 19
-; 3 * 19 -1 = 57 cycles + 7 call/ret + 6 loop = 70
+; 3 * 19 -1 = 56 cycles + 7 call/ret + 6 loop = 69
 ; 69/69.444 = 0.6% fast bit timing
 #define RXSTART 31
 #define tmp1	r16
