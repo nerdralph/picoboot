@@ -30,8 +30,8 @@
 #define UART_Rx 0
 #define UART_Tx 1
 #define RXDELAY 19
-; 3 * 19 = 57 cycles + 7 call/ret + 6 loop = 70
-; 70/69.444 = 0.8% slow bit timing
+; 3 * 19 -1 = 57 cycles + 7 call/ret + 6 loop = 70
+; 69/69.444 = 0.6% fast bit timing
 #define RXSTART 31
 #define tmp1	r16
 #define FCS	    r17
@@ -51,16 +51,19 @@ DelayLoop:
     brne DelayLoop
     rjmp BlinkLED
 
-.org (FLASHEND - 67)
+.org (FLASHEND - 65)
 VirtualReset:
     rjmp BlinkLED                   ; will be overwritten by programmer
 BootStart:
-    in  FCS, MCUSR                  ; use MCUSR to initialize FCS
-    sbrs FCS, EXTRF                 ; run bootloader on EXTRF 
+    sbis UART_Port, UART_Rx         ; Rx high = start bootloader
     rjmp VirtualReset               ; jump to application code
+    clr FCS
     sbi UART_Port-1, UART_Tx        ; set Tx line to output
-CommandLoop:
 
+    ; continuous loop for commands from programmer
+    ; when upload is finished, programmer resets chip & starts app
+    ; by transmitting a null byte during BootStart
+CommandLoop:
     rcall RxByte                    ; read low byte
     mov r0, data
     rcall RxByte                    ; read high byte
@@ -75,11 +78,10 @@ CommandLoop:
     rcall RxByte                    ; read FCS
     cp  FCS, data
     breq CommandLoop                ; next command
-    ; on FCS error, start application
+    ; Halt on FCS error
     ; programmer will loose sync and report error
-    ; programmer intentionally sending bad FCS doubles as
-    ; a command to start application after programming
-    rjmp VirtualReset               ; jump to application code
+Halt:
+    rjmp Halt                       ; jump to application code
 
 ; receive byte - save in data
 RxByte:
