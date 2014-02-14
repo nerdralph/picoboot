@@ -16,7 +16,7 @@
  * PD0/PD1 are used for Rx/Tx, or PB0/PB1 for parts with no PORTD
  *
  * The protocol is a sequence of 4-byte frames:
- * data lo, data hi, command, FCS (continuous EOR)
+ * data lo, data hi, command, FCS (EOR)
  * data is copied to r0, r1, command is written to SPMCSR, followed
  * by the spm instruction.  If bit 6 of the command is set, r0 & r1
  * are copied to Z
@@ -89,7 +89,7 @@ CommandLoop:
     spm
     sbi UART_Port-2, UART_Tx        ; toggle Tx break signal
     rcall RxByte                    ; read FCS
-    cp  FCS, data
+    tst FCS                         ; no error if FCS == 0
     breq CommandLoop                ; next command
 Halt:
     ; programmer will loose sync and report error
