@@ -9,6 +9,8 @@
  * http://github.com/baerwolf/USBaspLoader
  * http://code.google.com/p/optiboot/
  * AVR305 half-duplex serial uart
+ * Thanks for suggestions from avrfreaks members and code review
+ * by Joey Morin.
  *
  * Soft UART is used, even on parts with a hardware UART
  * PD0/PD1 are used for Rx/Tx, or PB0/PB1 for parts with no PORTD
@@ -64,7 +66,7 @@ DelayLoop:
 VirtualReset:
     rjmp BlinkLED                   ; will be overwritten by programmer
 BootStart:
-    sbis UART_Port, UART_Rx         ; Rx high = start bootloader
+    sbis UART_Port-2, UART_Rx       ; Rx high = start bootloader
     rjmp VirtualReset               ; jump to application code
     clr FCS
     sbi UART_Port-1, UART_Tx        ; set Tx line to output
@@ -93,7 +95,7 @@ Halt:
 
 ; receive byte - save in data
 RxByte:
-    sbic UART_Port, UART_Rx         ; wait for start edge
+    sbic UART_Port-2, UART_Rx       ; wait for start edge
     rjmp RxByte
     ldi data, 0x80                  ; bit shift counter
     ldi delayArg, RXSTART           ; 1.5 bit delay
