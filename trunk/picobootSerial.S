@@ -51,7 +51,7 @@
 .org 0x0000
     rjmp BootStart 
 BlinkLED:
-    sbi PINB, 5
+    sbi PINB, LEDPIN
     ldi ZH, 30
 DelayLoop:
     ; 5.9M cycles =~ .74s @ 8Mhz
