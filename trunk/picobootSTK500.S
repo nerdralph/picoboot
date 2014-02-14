@@ -7,6 +7,12 @@
  * http://symlink.dk/electro/m163boot/
  * http://github.com/baerwolf/USBaspLoader
  * AVR305 half-duplex serial uart
+ * https://code.google.com/p/optiboot/
+ * 
+ * This bootloader is an implementation of the Arduino bootloader,
+ * a stripped-down STK500 protocol, in assembler.
+ * Optiboot is the primary guide for this bootloader 
+ *** this is pre-alpha non-functioning code ***
  */
 
 /* needed for <avr/io.h> to give io constant addresses */
