@@ -51,14 +51,14 @@ Delay3Cycle:
 RxByte:
 	ldi r24, 0x80					; bit shift counter
 WaitStart:
-	sbic UART_Port, UART_Rx			; wait for start edge
+	sbic UART_Port-2, UART_Rx		; wait for start edge
 	rjmp WaitStart
 	ldi delayArg, RXSTART			; 1.5 bit delay
 RxBit:
 	rcall Delay3Cycle				; delay and clear carry
 	; 6 cycle loop
 	ldi delayArg, RXDELAY 
-	sbic UART_Port, UART_Rx
+	sbic UART_Port-2, UART_Rx
 	sec
 	ror r24
 	brcc RxBit
