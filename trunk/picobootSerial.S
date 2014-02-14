@@ -87,10 +87,9 @@ CommandLoop:
     rcall RxByte                    ; read FCS
     cp  FCS, data
     breq CommandLoop                ; next command
-    ; Halt on FCS error
-    ; programmer will loose sync and report error
 Halt:
-    rjmp Halt                       ; jump to application code
+    ; programmer will loose sync and report error
+    rjmp Halt                       ; Halt on FCS error
 
 ; receive byte - save in data
 RxByte:
