@@ -40,7 +40,7 @@ Delay3Cycle:
 RxByte:
 	ldi rDEST, 0x80					; bit shift counter
 WaitStart:
-	sbic UART_Port, UART_Rx			; wait for start edge
+	sbic UART_Port-2, UART_Rx		; wait for start edge
 	rjmp WaitStart
 	ldi delayArg, 32				; 1.5 bit delay
 	;ldi delayArg, 67 for 16Mhz
@@ -50,7 +50,7 @@ RxBit:
 	; adiw delayArg, 19 clears carry 
 	ldi delayArg, 19				; 3 * 19 - 1 = 56 cycles
 	;ldi delayArg, 40 for 16Mhz
-	sbic UART_Port, UART_Rx
+	sbic UART_Port-2, UART_Rx
 	sec
 	ror rDEST
 	brcc RxBit
