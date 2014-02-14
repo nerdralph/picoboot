@@ -53,6 +53,8 @@
 .org 0x0000
     rjmp BootStart 
 BlinkLED:
+    sbi DDRB, LEDPIN
+Blink:
     sbi PINB, LEDPIN
     ldi ZH, 30
 DelayLoop:
@@ -60,7 +62,7 @@ DelayLoop:
     rcall Delay3Cycle               ; 256 * 3 cycles
     sbiw ZL, 1
     brne DelayLoop
-    rjmp BlinkLED
+    rjmp Blink
 
 .org (FLASHEND - 65)
 VirtualReset:
