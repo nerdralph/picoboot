@@ -1,30 +1,36 @@
-# picoBoot - tiny bootloader for AVR MCUs - ATtiny85 and others
+# picoBoot - tiny bootloader for AVR MCUs
 # @author: Ralph Doncaster
 # @version: $Id$
 
 # tested with avr-gcc version 4.3.3
 
-# any AVR MCUs with USI should work
+#DEVICE = attiny88
 DEVICE = attiny85
+#DEVICE = attiny2313
 
 CC = avr-gcc
 LD = avr-ld
-CFLAGS = -Os -mmcu=$(DEVICE)
-#CFLAGS +=
+CFLAGS = -mmcu=$(DEVICE)
+#CFLAGS += -O
+CFLAGS += -nostdlib
 
-all: boot.bin boot.hex
+all: picobootSerial.bin
 
-boot.hex: boot.o
+picoboot.hex: picoboot.bin
 	avr-objcopy -j .text -j .data -O ihex $< $@
 
-boot: boot.o
-	$(LD) -o $@ $<
+picoboot.bin: picoboot.o
+	$(CC) $(CFLAGS) -o $@ $<
 
-boot.bin: boot
+picobootSerial.bin: picobootSerial.o
+	$(CC) $(CFLAGS) -o $@ $<
+
+picoboot.bin: picoboot
 	avr-objcopy -j .text -j .data -O binary $< $@
 
 .S.o:
 	$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 
 clean:
-	rm boot.o boot
+	rm picoboot.o picoboot
+
