@@ -9,17 +9,17 @@
  * http://github.com/baerwolf/USBaspLoader
  * http://code.google.com/p/optiboot/
  * AVR305 half-duplex serial uart
- * Thanks for suggestions from avrfreaks members and code review
- * and submissions by Joey Morin.
+ * Thanks for suggestions from avrfreaks members and code
+ * submissions by Joey Morin.
  *
  * Soft UART is used, even on parts with a hardware UART
  * PD0/PD1 are used for Rx/Tx, or PB0/PB1 for parts with no PORTD
  *
  * The protocol is pairs of 4-byte frames:
  * data lo, data hi, FCS (EOR), command
- * data from the first frame is copied to Z.  For the 2nd frame,
- * data is copied to r0, r1, command is written to SPMCSR, followed
- * by the spm instruction.
+ * data from the first frame is copied r0, r1.  For the next frame,
+ * data is copied to Z, command is written to SPMCSR, followed
+ * by the spm instruction. The command for the first fame must be 0.
  *
  * bootloader acks to programmer with 0x80 after each byte
  */
@@ -84,19 +84,16 @@ BootStart:
     ; by transmitting a null byte during BootStart
 CommandLoop:
     rcall RxByte                    ; read low byte
-    mov r0, data
+    mov ZL, data
     rcall RxByte                    ; read high byte
-    mov r1, data
+    mov ZH, data
     rcall RxByte                    ; read FCS
     rcall RxByte                    ; read SPM command
     cpse FCS, delayArg              ; no error if FCS == 0
-Halt:
-    ; programmer will loose sync and report error
-    rjmp Halt                       ; Halt on FCS error
     ; execute program memory command bit 0 unset = nop
     out SPMCSR, data
     spm
-    movw ZL, r0
+    movw r0, ZL
     rjmp CommandLoop                ; next command
 
 ; receive byte - save in data
