@@ -21,8 +21,7 @@
  * data is copied to r0, r1, command is written to SPMCSR, followed
  * by the spm instruction.
  *
- * bootloader acks to programmer with a break signal before FCS 
- * which starts on even frames and ends on odd frames
+ * bootloader acks to programmer with 0x80 after each byte
  */
 
 /* needed for <avr/io.h> to give io constant addresses */
@@ -79,7 +78,6 @@ BootStart:
     sbis UART_Port-2, UART_Rx       ; Rx high = start bootloader
     rjmp VirtualReset               ; jump to application code
     clr FCS
-    sbi UART_Port-1, UART_Tx        ; set Tx line to output
 
     ; continuous loop for commands from programmer
     ; when upload is finished, programmer resets chip & starts app
@@ -111,12 +109,14 @@ RxByte:
 RxBit:
     ; 6 cycles + delay
     rcall Delay3Cycle
+    sbi UART_Port-1, UART_Tx        ; start Tx ACK
     ldi delayArg, RXDELAY           ; delay and clear carry
     sbic UART_Port, UART_Rx
     sec
     ror data
     brcc RxBit
     eor FCS, data
+    cbi UART_Port-1, UART_Tx        ; stop Tx ACK
     ; fall into delay for stop bit duration 
 
 ; delay 3 cycles * delayArg + 4 cycles (ret instruction)
