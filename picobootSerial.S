@@ -90,6 +90,8 @@ CommandLoop:
     rcall RxByte                    ; read FCS
     rcall RxByte                    ; read SPM command
     cpse FCS, delayArg              ; no error if FCS == 0
+Halt:
+    rjmp Halt                       ; Halt on FCS error
     ; execute program memory command bit 0 unset = nop
     out SPMCSR, data
     spm
