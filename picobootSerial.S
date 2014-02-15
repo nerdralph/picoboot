@@ -15,11 +15,11 @@
  * Soft UART is used, even on parts with a hardware UART
  * PD0/PD1 are used for Rx/Tx, or PB0/PB1 for parts with no PORTD
  *
- * The protocol is a sequence of 4-byte frames:
+ * The protocol is pairs of 4-byte frames:
  * data lo, data hi, command, FCS (EOR)
+ * data from the first frame is copied to Z.  For the 2nd frame,
  * data is copied to r0, r1, command is written to SPMCSR, followed
- * by the spm instruction.  If bit 6 of the command is set, r0 & r1
- * are copied to Z
+ * by the spm instruction.
  *
  * bootloader acks to programmer with a break signal before FCS 
  * which starts on even frames and ends on odd frames
@@ -82,11 +82,10 @@ CommandLoop:
     rcall RxByte                    ; read high byte
     mov r1, data
     rcall RxByte                    ; read SPM command
-    sbrs data, 6                    ; command bit 6 = set Z
-    movw ZL, r0
     ; execute program memory command bit 0 unset = nop
     out SPMCSR, data
     spm
+    movw ZL, r0
     sbi UART_Port-2, UART_Tx        ; toggle Tx break signal
     rcall RxByte                    ; read FCS
     tst FCS                         ; no error if FCS == 0
