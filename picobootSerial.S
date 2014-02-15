@@ -10,7 +10,7 @@
  * http://code.google.com/p/optiboot/
  * AVR305 half-duplex serial uart
  * Thanks for suggestions from avrfreaks members and code review
- * by Joey Morin.
+ * and submissions by Joey Morin.
  *
  * Soft UART is used, even on parts with a hardware UART
  * PD0/PD1 are used for Rx/Tx, or PB0/PB1 for parts with no PORTD
@@ -30,6 +30,14 @@
 
 /* AVR CPU definitions based on -mmcu flag */
 #include <avr/io.h>
+
+#define PICOBOOT_MIN_PAGE_ALIGN 64
+
+#if (SPM_PAGESIZE > PICOBOOT_MIN_PAGE_ALIGN)
+#define VIRTUAL_RESET_ORG (FLASHEND - SPM_PAGESIZE) - 1)
+#else
+#define VIRTUAL_RESET_ORG (FLASHEND - PICOBOOT_MIN_PAGE_ALIGN - 1)
+#endif 
 
 #define LEDPIN 5
 
@@ -64,7 +72,7 @@ DelayLoop:
     brne DelayLoop
     rjmp Blink
 
-.org (FLASHEND - 65)
+.org VIRTUAL_RESET_ORG
 VirtualReset:
     rjmp BlinkLED                   ; will be overwritten by programmer
 BootStart:
