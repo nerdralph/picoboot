@@ -21,7 +21,7 @@
  * data is copied to Z, command is written to SPMCSR, followed
  * by the spm instruction. The command for the first fame must be 0.
  *
- * bootloader acks to programmer with 0x80 after each byte
+ * bootloader acks to programmer with 0xC0 after each byte
  */
 
 /* needed for <avr/io.h> to give io constant addresses */
