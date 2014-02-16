@@ -38,7 +38,7 @@
 #define VIRTUAL_RESET_ORG (FLASHEND - PICOBOOT_MIN_PAGE_ALIGN - 1)
 #endif 
 
-#define LEDPIN 5
+#define LEDPIN 2
 
 #ifndef PORTD
 #define UART_Port PORTB
@@ -71,7 +71,7 @@ DelayLoop:
     brne DelayLoop
     rjmp Blink
 
-.org VIRTUAL_RESET_ORG
+.org (VIRTUAL_RESET_ORG -2)
 VirtualReset:
     rjmp BlinkLED                   ; will be overwritten by programmer
 BootStart:
@@ -79,6 +79,8 @@ BootStart:
     rjmp VirtualReset               ; jump to application code
     clr FCS
 
+    sbi UART_Port, UART_Tx          ; Tx idle
+    sbi UART_Port-1, UART_Tx        ; output mode
     ; continuous loop for commands from programmer
     ; when upload is finished, programmer resets chip & starts app
     ; by transmitting a null byte during BootStart
@@ -107,14 +109,14 @@ RxByte:
 RxBit:
     ; 6 cycles + delay
     rcall Delay3Cycle
-    sbi UART_Port-1, UART_Tx        ; start Tx ACK
+    cbi UART_Port, UART_Tx          ; start Tx ACK
     ldi delayArg, RXDELAY           ; delay and clear carry
     sbic UART_Port, UART_Rx
     sec
     ror data
     brcc RxBit
     eor FCS, data
-    cbi UART_Port-1, UART_Tx        ; stop Tx ACK
+    sbi UART_Port, UART_Tx          ; stop Tx ACK
     ; fall into delay for stop bit duration 
 
 ; delay 3 cycles * delayArg + 4 cycles (ret instruction)
