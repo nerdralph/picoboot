@@ -14,6 +14,7 @@
  *
  * Soft UART is used, even on parts with a hardware UART
  * PD0/PD1 are used for Rx/Tx, or PB0/PB1 for parts with no PORTD
+ * Tx pin requires external pullup resistor (10K recommended)
  *
  * The protocol is pairs of 4-byte frames:
  * data lo, data hi, FCS (EOR), command
@@ -38,7 +39,7 @@
 #define VIRTUAL_RESET_ORG (FLASHEND - PICOBOOT_MIN_PAGE_ALIGN - 1)
 #endif 
 
-#define LEDPIN 2
+#define LEDPIN 1
 
 #ifndef PORTD
 #define UART_Port PORTB
@@ -47,12 +48,10 @@
 #endif
 #define UART_Rx 0
 #define UART_Tx 1
-#define RXDELAY 18
-; 3 * 18 -1 = 53 cycles + 7 call/ret + 8 loop = 68
-; 68/69.444 =~ 2% fast bit timing
+; 7 * 3 = 21 + 6 + 8 = 35 cycles = 1 bit-time
 #define RXDELAY 7
-; 230.4kbps timing instead of 115.2
-#define RXSTART 31
+; 13 * 3 = 39 + 6 + 6.5 = 51.5 cycles = 1.5 bit-times
+#define RXSTART 13
 #define tmp1	r16
 #define FCS	    r17
 #define data    r22
@@ -73,7 +72,7 @@ DelayLoop:
     brne DelayLoop
     rjmp Blink
 
-.org (VIRTUAL_RESET_ORG -2)
+.org (VIRTUAL_RESET_ORG)
 VirtualReset:
     rjmp BlinkLED                   ; will be overwritten by programmer
 BootStart:
@@ -81,8 +80,6 @@ BootStart:
     rjmp VirtualReset               ; jump to application code
     clr FCS
 
-    sbi UART_Port, UART_Tx          ; Tx idle
-    sbi UART_Port-1, UART_Tx        ; output mode
     ; continuous loop for commands from programmer
     ; when upload is finished, programmer resets chip & starts app
     ; by transmitting a null byte during BootStart
@@ -109,16 +106,16 @@ RxByte:
     ldi data, 0x80                  ; bit shift counter
     ldi delayArg, RXSTART           ; 1.5 bit delay
 RxBit:
-    ; 6 cycles + delay
-    rcall Delay3Cycle
-    cbi UART_Port, UART_Tx          ; start Tx ACK
-    ldi delayArg, RXDELAY           ; delay and clear carry
-    sbic UART_Port, UART_Rx
+    ; 8 cycles + delay
+    rcall Delay3Cycle               ; delay and clear carry
+    sbi UART_Port-1, UART_Tx        ; output mode, low 
+    ldi delayArg, RXDELAY
+    sbic UART_Port-2, UART_Rx
     sec
     ror data
     brcc RxBit
     eor FCS, data
-    sbi UART_Port, UART_Tx          ; stop Tx ACK
+    cbi UART_Port-1, UART_Tx        ; stop Tx ACK
     ; fall into delay for stop bit duration 
 
 ; delay 3 cycles * delayArg + 4 cycles (ret instruction)
