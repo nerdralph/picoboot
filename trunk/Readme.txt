@@ -3,7 +3,7 @@ Note: only picobootSerial is being maintained
 
 File name           Description
 -----------------------------------
-picobootSerial.S    Soft UART bootloader in 64 bytes
+picobootSerial.S    Soft UART bootloader in 64 bytes - uses avrdude fork for uploading
 boot.S              SPI-based prototype - obsolete
 picobootSTK500.S    arduino compatible bootloader prototype
 BBUart.S            Soft UART in 26 instructions
