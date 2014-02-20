@@ -39,7 +39,7 @@
 #define VIRTUAL_RESET_ORG (FLASHEND - PICOBOOT_MIN_PAGE_ALIGN - 1)
 #endif 
 
-#define LEDPIN 1
+#define LEDPIN 2
 
 #ifndef PORTD
 #define UART_Port PORTB
