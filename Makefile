@@ -2,11 +2,15 @@
 # @author: Ralph Doncaster
 # @version: $Id$
 
-# tested with avr-gcc version 4.3.3
+# tested with avr-gcc version 4.3.2
 
 #DEVICE = attiny88
-DEVICE = attiny85
+#DEVICE = attiny85
+DEVICE = attiny84
 #DEVICE = attiny2313
+FLASHSIZE = 8192
+# calculate bootloader address
+ADDRESS = $(value $(FLASHSIZE) - 66)
 
 CC = avr-gcc
 LD = avr-ld
@@ -14,16 +18,22 @@ CFLAGS = -mmcu=$(DEVICE)
 #CFLAGS += -O
 CFLAGS += -nostdlib
 
-all: picobootSerial.bin
+all: picobootSerial.hex
 
-picoboot.hex: picoboot.bin
-	avr-objcopy -j .text -j .data -O ihex $< $@
+.elf.hex:
+	avr-objcopy -O ihex $< $@
+#	avr-objcopy -j .text -j .data -O ihex $< $@
+
+picobootSerial.hex: picobootSerial.o
+
+picobootSerial.hex: picobootSerial.elf
+	avr-objcopy -O ihex $< $@
 
 picoboot.bin: picoboot.o
 	$(CC) $(CFLAGS) -o $@ $<
 
-picobootSerial.bin: picobootSerial.o
-	$(CC) $(CFLAGS) -o $@ $<
+picobootSerial.elf: picobootSerial.o
+	$(CC) $(CFLAGS) -Wl,-section-start=.bootloader=0x1BE -o $@ $<
 
 picoboot.bin: picoboot
 	avr-objcopy -j .text -j .data -O binary $< $@
@@ -32,5 +42,5 @@ picoboot.bin: picoboot
 	$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 
 clean:
-	rm picoboot.o picoboot
+	rm *.o *.elf
 
