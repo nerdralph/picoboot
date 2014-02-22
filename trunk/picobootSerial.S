@@ -31,15 +31,8 @@
 /* AVR CPU definitions based on -mmcu flag */
 #include <avr/io.h>
 
-#define PICOBOOT_MIN_PAGE_ALIGN 64
-
-#if (SPM_PAGESIZE > PICOBOOT_MIN_PAGE_ALIGN)
-#define VIRTUAL_RESET_ORG (FLASHEND - SPM_PAGESIZE) - 1)
-#else
-#define VIRTUAL_RESET_ORG (FLASHEND - PICOBOOT_MIN_PAGE_ALIGN - 1)
-#endif 
-
 #define LEDPIN 2
+# PB2 = CK0(pin5) on t84, SCK (pin7) on t85, SS(pin16) on t88
 
 #ifndef PORTD
 #define UART_Port PORTB
@@ -48,9 +41,9 @@
 #endif
 #define UART_Rx 0
 #define UART_Tx 1
-; 7 * 3 = 21 + 6 + 8 = 35 cycles = 1 bit-time
+# 7 * 3 = 21 + 6 + 8 = 35 cycles = 1 bit-time
 #define RXDELAY 7
-; 13 * 3 = 39 + 6 + 6.5 = 51.5 cycles = 1.5 bit-times
+# 13 * 3 = 39 + 6 + 6.5 = 51.5 cycles = 1.5 bit-times
 #define RXSTART 13
 #define tmp1	r16
 #define FCS	    r17
@@ -58,7 +51,6 @@
 #define delayArg	r18
 
 .text
-.org 0x0000
     rjmp BootStart 
 BlinkLED:
     sbi DDRB, LEDPIN
@@ -72,7 +64,7 @@ DelayLoop:
     brne DelayLoop
     rjmp Blink
 
-.org (VIRTUAL_RESET_ORG)
+.section .bootloader,"ax",@progbits
 VirtualReset:
     rjmp BlinkLED                   ; will be overwritten by programmer
 BootStart:
