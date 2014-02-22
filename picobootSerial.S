@@ -41,10 +41,9 @@
 #endif
 #define UART_Rx 0
 #define UART_Tx 1
-# 7 * 3 = 21 + 6 + 8 = 35 cycles = 1 bit-time
-#define RXDELAY 7
-# 13 * 3 = 39 + 6 + 6.5 = 51.5 cycles = 1.5 bit-times
-#define RXSTART 13
+# bit-time = RXDELAY * 3 + 12 cycles 
+#define RXDELAY 19
+#define RXSTART 31
 #define tmp1	r16
 #define FCS	    r17
 #define data    r22
@@ -89,6 +88,10 @@ Halt:
     out SPMCSR, data
     spm
     movw r0, ZL
+    ; ACK frame
+    sbi UART_Port-1, UART_Tx        ; output mode, low 
+    rcall Delay3Cycle               ; delay 256 * 3
+    cbi UART_Port-1, UART_Tx        ; stop Tx ACK
     rjmp CommandLoop                ; next command
 
 ; receive byte - save in data
@@ -100,14 +103,12 @@ RxByte:
 RxBit:
     ; 8 cycles + delay
     rcall Delay3Cycle               ; delay and clear carry
-    sbi UART_Port-1, UART_Tx        ; output mode, low 
     ldi delayArg, RXDELAY
     sbic UART_Port-2, UART_Rx
     sec
     ror data
     brcc RxBit
     eor FCS, data
-    cbi UART_Port-1, UART_Tx        ; stop Tx ACK
     ; fall into delay for stop bit duration 
 
 ; delay 3 cycles * delayArg + 4 cycles (ret instruction)
