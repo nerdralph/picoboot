@@ -8,9 +8,8 @@
 #DEVICE = attiny85
 DEVICE = attiny84
 #DEVICE = attiny2313
-FLASHSIZE = 8192
 # calculate bootloader address
-ADDRESS = $(value $(FLASHSIZE) - 66)
+ADDRESS:=$(shell echo $(DEVICE)|cut -c7| awk '{ print $$1 * 1024 -66 }')
 
 CC = avr-gcc
 LD = avr-ld
@@ -33,7 +32,7 @@ picoboot.bin: picoboot.o
 	$(CC) $(CFLAGS) -o $@ $<
 
 picobootSerial.elf: picobootSerial.o
-	$(CC) $(CFLAGS) -Wl,-section-start=.bootloader=0x1BE -o $@ $<
+	$(CC) $(CFLAGS) -Wl,-section-start=.bootloader=$(ADDRESS) -o $@ $<
 
 picoboot.bin: picoboot
 	avr-objcopy -j .text -j .data -O binary $< $@
