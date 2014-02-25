@@ -1,6 +1,5 @@
 /* picoBoot - tiny bootloader for AVR MCUs
- * TTL serial version - 81N, 115.2kbps @8Mhz, 230.4kbps@16Mhz
- * ideal bit timing @115.2kbps/8Mhz is 69.444 cycles/bit
+ * TTL serial version - 81N, 460.8kbps
  * @author: Ralph Doncaster
  * @version: $Id$
  * code ideas from:
@@ -42,8 +41,8 @@
 #define UART_Rx 0
 #define UART_Tx 1
 # bit-time = RXDELAY * 3 + 12 cycles 
-#define RXDELAY 19
-#define RXSTART 31
+#define RXDELAY 2
+#define RXSTART 4
 #define tmp1	r16
 #define FCS	    r17
 #define data    r22
@@ -80,6 +79,7 @@ CommandLoop:
     rcall RxByte                    ; read high byte
     mov ZH, data
     rcall RxByte                    ; read FCS
+    cbi UART_Port-1, UART_Tx        ; stop Tx ACK
     rcall RxByte                    ; read SPM command
     cpse FCS, delayArg              ; no error if FCS == 0
 Halt:
@@ -88,20 +88,18 @@ Halt:
     out SPMCSR, data
     spm
     movw r0, ZL
-    ; ACK frame
-    sbi UART_Port-1, UART_Tx        ; output mode, low 
-    rcall Delay3Cycle               ; delay 256 * 3
-    cbi UART_Port-1, UART_Tx        ; stop Tx ACK
+    sbi UART_Port-1, UART_Tx        ; ACK frame
     rjmp CommandLoop                ; next command
 
-; receive byte - save in data
+; receive byte - save in data, keep running FCS
+; 14 instructions
 RxByte:
     sbic UART_Port-2, UART_Rx       ; wait for start edge
     rjmp RxByte
     ldi data, 0x80                  ; bit shift counter
     ldi delayArg, RXSTART           ; 1.5 bit delay
 RxBit:
-    ; 8 cycles + delay
+    ; 6 cycles + delay
     rcall Delay3Cycle               ; delay and clear carry
     ldi delayArg, RXDELAY
     sbic UART_Port-2, UART_Rx
