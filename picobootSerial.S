@@ -1,5 +1,5 @@
 /* picoBoot - tiny bootloader for AVR MCUs
- * TTL serial version - 81N, 460.8kbps
+ * TTL serial version - 81N, 230.4kbps
  * @author: Ralph Doncaster
  * @version: $Id$
  * code ideas from:
@@ -41,8 +41,8 @@
 #define UART_Rx 0
 #define UART_Tx 1
 # bit-time = RXDELAY * 3 + 12 cycles 
-#define RXDELAY 2
-#define RXSTART 4
+#define RXDELAY 8
+#define RXSTART 12
 #define FCS	    r16
 #define data    r22
 #define delayArg	r18
@@ -76,10 +76,10 @@ BootStart:
 CommandLoop:
     rcall RxByte                    ; read low byte
     mov ZL, data
-    sbi UART_Port, UART_Tx          ; stop Tx ACK
     rcall RxByte                    ; read high byte
     mov ZH, data
     rcall RxByte                    ; read FCS
+    sbi UART_Port, UART_Tx          ; stop Tx ACK
     rcall RxByte                    ; read SPM command
     cpse FCS, delayArg              ; no error if FCS == 0
 Halt:
