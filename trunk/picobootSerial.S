@@ -43,8 +43,7 @@
 # bit-time = RXDELAY * 3 + 12 cycles 
 #define RXDELAY 2
 #define RXSTART 4
-#define tmp1	r16
-#define FCS	    r17
+#define FCS	    r16
 #define data    r22
 #define delayArg	r18
 
@@ -69,6 +68,7 @@ BootStart:
     sbis UART_Port-2, UART_Rx       ; Rx high = start bootloader
     rjmp VirtualReset               ; jump to application code
     clr FCS
+    sbi UART_Port-1, UART_Tx        ; set Tx pin to output mode
 
     ; continuous loop for commands from programmer
     ; when upload is finished, programmer resets chip & starts app
@@ -76,10 +76,10 @@ BootStart:
 CommandLoop:
     rcall RxByte                    ; read low byte
     mov ZL, data
+    sbi UART_Port, UART_Tx          ; stop Tx ACK
     rcall RxByte                    ; read high byte
     mov ZH, data
     rcall RxByte                    ; read FCS
-    cbi UART_Port-1, UART_Tx        ; stop Tx ACK
     rcall RxByte                    ; read SPM command
     cpse FCS, delayArg              ; no error if FCS == 0
 Halt:
@@ -88,7 +88,7 @@ Halt:
     out SPMCSR, data
     spm
     movw r0, ZL
-    sbi UART_Port-1, UART_Tx        ; ACK frame
+    cbi UART_Port, UART_Tx          ; ACK frame
     rjmp CommandLoop                ; next command
 
 ; receive byte - save in data, keep running FCS
