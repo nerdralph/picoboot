@@ -8,8 +8,6 @@
  * http://github.com/baerwolf/USBaspLoader
  * http://code.google.com/p/optiboot/
  * AVR305 half-duplex serial uart
- * Thanks for suggestions from avrfreaks members and code
- * submissions by Joey Morin.
  *
  * Soft UART is used, even on parts with a hardware UART
  * PD0/PD1 are used for Rx/Tx, or PB0/PB1 for parts with no PORTD
