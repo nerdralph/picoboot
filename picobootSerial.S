@@ -1,5 +1,5 @@
 /* picoBoot - tiny bootloader for AVR MCUs
- * TTL serial version - 81N, 230.4kbps
+ * TTL serial version - 81N, 230.4kbps = 4.34us/bit = 34.72 cycles@8Mhz
  * @author: Ralph Doncaster
  * @version: $Id$
  * code ideas from:
@@ -91,11 +91,22 @@ Halt:
 
 ; receive byte - save in data, keep running FCS
 ; 14 instructions
+; 230.4kbps - 34.72 cycles@8Mhz
+; closest delay = 36 cycles = 1.28 cycles/bit too slow
+; if equally balanced, 1st bit should be read 4.47 cycles early,
+; 8th 4.47 cycles late.  Closest fit is to read first bit 5 cycles early,
+; 8th 4 cycles late.
+; Center of 1st bit is 52.08 cycles after start bit begings,
+; so want 52-5 = 47 cycle delay.
+; sbic = 5 cycles after start bit detection
+; RXSTART 12 * 3 = 36 + 6(call/ret) = 42 + 5 = 47
+
 RxByte:
-    sbic UART_Port-2, UART_Rx       ; wait for start edge
-    rjmp RxByte
     ldi data, 0x80                  ; bit shift counter
     ldi delayArg, RXSTART           ; 1.5 bit delay
+WaitStart:
+    sbic UART_Port-2, UART_Rx       ; wait for start edge
+    rjmp WaitStart
 RxBit:
     ; 6 cycles + delay
     rcall Delay3Cycle               ; delay and clear carry
