@@ -24,6 +24,7 @@
 
 #define rCOMMAND r16
 #define rTEMP r18
+#define PgLen r18
 /* defintions for soft UART */
 #define UART_Port PORTB
 #define UART_Tx PINB0
@@ -40,105 +41,96 @@ Boot:
   ; check MCUSR for EXTRF too?
 
 CommandLoop:
-	rcall RxByte					; read command
-	mov rCOMMAND, r24
-	rcall RxByte          ; get next byte
+    rcall RxPacket
+    ld rCOMMAND, Y+
+	ldi r26, STK_INSYNC 
+	rcall TxByte
 	cpi rCOMMAND, STK_LOAD_ADDRESS
 	brne Universal
-	mov ZH, r24
-	rcall RxByte
-	mov ZL, r24					; Z stores address for page load
-  lsl ZL
-  rol ZH              ; convert from word to byte address
+    ld ZH, Y+
+    ld ZL, Y+                       ; Z stores address for page load
+    lsl ZL
+    rol ZH                          ; convert from word to byte address
 Universal:
 	cpi rCOMMAND, STK_UNIVERSAL
+	brne GetParam
+    ; command ignored - return dummy 0x00
+    clr r26
+    rcall TxByte
+GetParam:
+	cpi rCOMMAND, STK_GET_PARAMETER
 	brne ProgPage
-  rcall ReadEOP
-  ; 0x00 dummy reply
-	rjmp TxOK
+    ; return 0x03 for all parameters - Optiboot comments say
+    ; its enough to keep Avrdude happy
+    ; also means 03 is reply to major and minor version
+    ; looking at the Avrdude stk500 code I think it may be safe to return
+    ; 0x00 and comine this response with the STK_UNIVERSAL response
+    ; to save 2 instructions
+    ldi r26, 0x03
+    rcall TxByte
 ProgPage:
 	cpi rCOMMAND, STK_PROG_PAGE
 	brne ReadPage
-	rcall GetPageParams
+    ldd PgLen, Y+1                  ; ignore Pg len Hi
+    ; skip block size & type - 3 bytes
+    adiw YL, 3
 PageFill:
-	mov r1, r24
-	rcall RxByte
-	mov r0, r24
+    ld r1, Y+                       ; word high byte 
+    ld r0, Y+                       ; word low byte 
+    ldi rTEMP, (0x01)               ; fill page buffer
 	rcall DoSPM
-	adiw ZL, 2						          ; increment Z pointer
-	subi rTEMP, 2
+	adiw ZL, 2                      ; increment Z pointer
+	subi PgLen, 2
 	brne PageFill
-	subi ZL, SPM_PAGESIZE			      ; reverse page pointer
-  sbci ZH, 0
-  ldi rTEMP, (1<<PGERS)|(0x01)    ;erase page
+	subi ZL, SPM_PAGESIZE           ; reverse page pointer
+    sbci ZH, 0
+    ldi rTEMP, (1<<PGERS)|(0x01)    ;erase page
 	rcall DoSPM
-  ldi rTEMP, (1<<PGWRT)|(0x01)    ;write page
+    ldi rTEMP, (1<<PGWRT)|(0x01)    ;write page
 	rcall DoSPM
 ReadPage:
 	cpi rCOMMAND, STK_READ_PAGE
 	brne ReadSig
-	rcall GetPageParams
-  rcall ReadEOP
+    ldd PgLen, Y+1                  ; ignore Pg len Hi
 ReadByte:
 	lpm r26, Z+
 	rcall TxByte
-	dec rTEMP
+	dec PgLen
 	brne ReadByte
-  rjmp DoneCMD
 ReadSig:
 	cpi rCOMMAND, STK_READ_SIGN
-	brne GetParam
-  rcall ReadEOP
-  ldi r26, SIGNATURE_0
-	rcall TxByte
-  ldi r26, SIGNATURE_1
-	rcall TxByte
-  ldi r26, SIGNATURE_2
-	rjmp TxOK
-GetParam:
-	cpi rCOMMAND, STK_GET_PARAMETER
 	brne Quit
-  rcall ReadEOP                   ; ignore parameter
-  ; 0x00 dummy reply
-	rjmp TxOK
+    ldi r26, SIGNATURE_0
+	rcall TxByte
+    ldi r26, SIGNATURE_1
+	rcall TxByte
+    ldi r26, SIGNATURE_2
 Quit:
 	cpi rCOMMAND, STK_LEAVE_PROGMODE
 	breq StartApp
 Default:
-  rcall ReadEOP
-  rjmp DoneCMD
-TxOK:
-; transmit reply byte + OK
-  rcall TxByte
-DoneCMD:
-; reply OK
+    ; reply OK
 	ldi r26, STK_OK
 	rcall TxByte
-  rjmp CommandLoop
-
-; read to EOP and respond with INSYNC 
-NextByte:
-  rcall RxByte
-ReadEOP:
-  cpi r24, CRC_EOP
-  brne RxByte
-	ldi r26, STK_INSYNC 
-	rcall TxByte
-  ret
-
-; get length and flash type for write or read page
-; length stored in rTemp
-GetPageParams:
-	; ignore block size hi byte already read
-	rcall RxByte
-	mov rTEMP, r24				; block size
-	rcall RxByte					; ignore memory type - only flash support
-  ret
+    rjmp CommandLoop
 
 DoSPM:
   out SPMCSR, rTEMP
   spm
   ret
+
+RxPacket:
+    rcall ResetPacketPtr
+NextByte:
+    rcall RxByte
+    st Y+, r24
+    cpi r24, CRC_EOP
+    brne NextByte
+ResetPacketPtr:
+    ; inialize packet buffer pointer
+    ldi YL, lo8(RAMSTART)
+    ldi YH, hi8(RAMSTART)
+    ret
 
 /* soft UART code */
 #define DIVIDE_ROUNDED(NUMERATOR, DIVISOR) ((((2*(NUMERATOR))/(DIVISOR))+1)/2)
