@@ -1,5 +1,6 @@
-/* picoBoot - tiny bootloader for AVR MCUs - ATtiny85 and others
- * TTL serial version - 81N, 115.2kbps @8Mhz
+/* picoBootSTK500 - arduino compatible bootloader
+ *
+ * TTL serial version - 81N, 115.2kbps
  * @author: Ralph Doncaster
  * @version: $Id$
  * code ideas from:
@@ -58,12 +59,14 @@ CommandLoop:
     ld ZH, Y+                       ; Z stores address for page load
     lsl ZL
     rol ZH                          ; convert from word to byte address
+
 Universal:
 	cpi rCOMMAND, STK_UNIVERSAL
 	brne GetParam
     ; command ignored - return dummy 0x00
     clr r26
     rcall TxByte
+
 GetParam:
 	cpi rCOMMAND, STK_GET_PARAMETER
 	brne ProgPage
@@ -75,15 +78,15 @@ GetParam:
     ; to save 2 instructions
     ldi r26, 0x03
     rcall TxByte
+
 ProgPage:
     ; predictive load of PgLen for PROG_PAGE or READ_PAGE 
     ldd PgLen, Y+                   ; ignore Pg len Hi
     ldd PgLen, Y+
+    ldd MemType, Y+
 
 	cpi rCOMMAND, STK_PROG_PAGE
 	brne ReadPage
-    ; skip block size & type - 3 bytes
-    ldd MemType, Y+
     cpi MemType, 'F'
     brne ProgEEProm
 PageFill:
@@ -102,27 +105,34 @@ PageFill:
 	rcall DoSPM
 ProgEEProm:
     cpi MemType, 'E'
-    brne Default
+    brne Default                    ; ignore other MemType
 WriteEE:
-    sbic EECR, EEPE                 ; wait for previous write to finish
-    rjmp WriteEE
-    out EEARL, ZL
-    out EEARH, ZH
+    rcall SetupEE
     ld r0, Y+
     out EEDR, r0 
     sbi EECR, EEMPE
     sbi EECR, EEPE                  ; write data to EEProm
-	adiw ZL, 1                      ; increment Z pointer
-	subi PgLen, 1
+	dec PgLen
 	brne WriteEE
+
 ReadPage:
 	cpi rCOMMAND, STK_READ_PAGE
 	brne ReadSig
-ReadByte:
+    cpi MemType, 'F'
+    brne ReadEEProm
+ReadFlashByte:
 	lpm r26, Z+
 	rcall TxByte
 	dec PgLen
-	brne ReadByte
+	brne ReadFlashByte
+ReadEEProm:
+    rcall SetupEE
+    sbi EECR, EERE
+    in r26, EEDR
+    rcall TxByte
+	dec PgLen
+	brne ReadEEProm
+
 ReadSig:
 	cpi rCOMMAND, STK_READ_SIGN
 	brne Quit
@@ -133,22 +143,33 @@ SigLoop:
     out SPMCSR, rTEMP
     lpm r26, Z
 	rcall TxByte                    ; send sig byte
-    adiw r26, 2
+    adiw ZL, 2
     cpi ZL, 6                       ; 3 signature bytes
     brne SigLoop
+
 Quit:
 	cpi rCOMMAND, STK_LEAVE_PROGMODE
 	breq StartApp
+
 Default:
     ; reply OK
 	ldi r26, STK_OK
 	rcall TxByte
     rjmp CommandLoop
 
+
 DoSPM:
   out SPMCSR, rTEMP
   spm
   ret
+
+SetupEE:
+    sbic EECR, EEPE                 ; wait for previous IO to finish
+    rjmp SetupEE
+    out EEARL, ZL
+    out EEARH, ZH
+	adiw ZL, 1                      ; increment Z pointer
+    ret
 
 RxPacket:
     rcall ResetPacketPtr
@@ -168,7 +189,6 @@ ResetPacketPtr:
 
 ; txbit takes 3*RXDELAY + 14 cycles
 #define delayArg r22
-;define TXDELAY 18
 #define BIT_CYCLES DIVIDE_ROUNDED(F_CPU,BAUD_RATE) 
 #define TXDELAY DIVIDE_ROUNDED(BIT_CYCLES - 14, 3)
 
