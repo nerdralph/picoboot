@@ -40,6 +40,9 @@ picoboot.bin: picoboot.o
 picobootSerial.elf: picobootSerial.o
 	$(CC) $(CFLAGS) -Wl,-section-start=.bootloader=$(ADDRESS) -o $@ $<
 
+picobootSTK500.elf: picobootSTK500.o
+	$(CC) $(CFLAGS) -Wl,-section-start=.bootloader=0x7E00 -o $@ $<
+
 picoboot.bin: picoboot
 	avr-objcopy -j .text -j .data -O binary $< $@
 
