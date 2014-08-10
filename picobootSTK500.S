@@ -20,35 +20,42 @@
 /* AVR CPU definitions based on -mmcu flag */
 #include <avr/io.h>
 
+/* following defines are missing in avr-libc
+ * see bug #42957  
+ */
+#define SPMEN 0
+#define SIGRD 5
+
 #include "stk500.h"
 
 #define rCOMMAND r16
-#define rTEMP r18
+#define rTEMP r17
 #define PgLen r18
+#define MemType r19
 /* defintions for soft UART */
 #define UART_Port PORTB
 #define UART_Tx PINB0
 #define UART_Rx PINB1
 #define BAUD_RATE 115200
-#define F_CPU 8000000
 
 .section .bootloader,"ax",@progbits
 ; use -WL,--section-start=.bootloader=0xXf00
 
 Boot:
-	sbis UART_Port, UART_Rx 		; run bootloader if serial connected
+;	sbis UART_Port, UART_Rx 		; run bootloader if serial connected
+    in rTEMP, MCUSR
+	sbrs rTEMP, EXTRF   		    ; run bootloader on external reset
 	rjmp StartApp					; jump to application code
-  ; check MCUSR for EXTRF too?
 
 CommandLoop:
     rcall RxPacket
-    ld rCOMMAND, Y+
 	ldi r26, STK_INSYNC 
 	rcall TxByte
+    ld rCOMMAND, Y+
 	cpi rCOMMAND, STK_LOAD_ADDRESS
 	brne Universal
-    ld ZH, Y+
-    ld ZL, Y+                       ; Z stores address for page load
+    ld ZL, Y+
+    ld ZH, Y+                       ; Z stores address for page load
     lsl ZL
     rol ZH                          ; convert from word to byte address
 Universal:
@@ -69,29 +76,48 @@ GetParam:
     ldi r26, 0x03
     rcall TxByte
 ProgPage:
+    ; predictive load of PgLen for PROG_PAGE or READ_PAGE 
+    ldd PgLen, Y+                   ; ignore Pg len Hi
+    ldd PgLen, Y+
+
 	cpi rCOMMAND, STK_PROG_PAGE
 	brne ReadPage
-    ldd PgLen, Y+1                  ; ignore Pg len Hi
     ; skip block size & type - 3 bytes
-    adiw YL, 3
+    ldd MemType, Y+
+    cpi MemType, 'F'
+    brne ProgEEProm
 PageFill:
-    ld r1, Y+                       ; word high byte 
     ld r0, Y+                       ; word low byte 
-    ldi rTEMP, (0x01)               ; fill page buffer
+    ld r1, Y+                       ; word high byte 
+    ldi rTEMP, (1<<SPMEN)           ; fill page buffer
 	rcall DoSPM
 	adiw ZL, 2                      ; increment Z pointer
 	subi PgLen, 2
 	brne PageFill
 	subi ZL, SPM_PAGESIZE           ; reverse page pointer
     sbci ZH, 0
-    ldi rTEMP, (1<<PGERS)|(0x01)    ;erase page
+    ldi rTEMP, (1<<PGERS)|(1<<SPMEN)    ;erase page
 	rcall DoSPM
-    ldi rTEMP, (1<<PGWRT)|(0x01)    ;write page
+    ldi rTEMP, (1<<PGWRT)|(1<<SPMEN)    ;write page
 	rcall DoSPM
+ProgEEProm:
+    cpi MemType, 'E'
+    brne Default
+WriteEE:
+    sbic EECR, EEPE                 ; wait for previous write to finish
+    rjmp WriteEE
+    out EEARL, ZL
+    out EEARH, ZH
+    ld r0, Y+
+    out EEDR, r0 
+    sbi EECR, EEMPE
+    sbi EECR, EEPE                  ; write data to EEProm
+	adiw ZL, 1                      ; increment Z pointer
+	subi PgLen, 1
+	brne WriteEE
 ReadPage:
 	cpi rCOMMAND, STK_READ_PAGE
 	brne ReadSig
-    ldd PgLen, Y+1                  ; ignore Pg len Hi
 ReadByte:
 	lpm r26, Z+
 	rcall TxByte
@@ -100,11 +126,16 @@ ReadByte:
 ReadSig:
 	cpi rCOMMAND, STK_READ_SIGN
 	brne Quit
-    ldi r26, SIGNATURE_0
-	rcall TxByte
-    ldi r26, SIGNATURE_1
-	rcall TxByte
-    ldi r26, SIGNATURE_2
+    clr ZL
+    clr ZH
+    ldi rTEMP, (1<<SIGRD)|(1<<SPMEN)
+SigLoop:
+    out SPMCSR, rTEMP
+    lpm r26, Z
+	rcall TxByte                    ; send sig byte
+    adiw r26, 2
+    cpi ZL, 6                       ; 3 signature bytes
+    brne SigLoop
 Quit:
 	cpi rCOMMAND, STK_LEAVE_PROGMODE
 	breq StartApp
