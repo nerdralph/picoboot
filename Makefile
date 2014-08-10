@@ -4,18 +4,24 @@
 
 # tested with avr-gcc version 4.3.2
 
-DEVICE = attiny88
+#DEVICE = attiny88
 #DEVICE = attiny85
 #DEVICE = attiny84
 #DEVICE = attiny2313
-# calculate bootloader address
+DEVICE = atmega328
+CPU_SPEED = 16000000
+# calculate picoboot bootloader address
 ADDRESS:=$(shell echo $(DEVICE)|cut -c7| awk '{ printf("0x%x", $$1 * 1024 -66) }')
 
 CC = avr-gcc
 LD = avr-ld
-CFLAGS = -mmcu=$(DEVICE)
+CFLAGS = -mmcu=$(DEVICE) -DF_CPU=$(CPU_SPEED)
 #CFLAGS += -O
 CFLAGS += -nostdlib
+
+%.hex: %
+	avr-objcopy -O ihex $< $@
+#	avr-objcopy -j .text -j .data -O ihex $< $@
 
 all: picobootSerial.hex
 
