@@ -40,10 +40,15 @@
 #define rTEMP r17
 #define PgLen r18
 #define MemType r19
+
 /* defintions for soft UART */
+#ifdef PORTD
+#define UART_Port PORTD
+#else
 #define UART_Port PORTB
-#define UART_Tx PINB0
-#define UART_Rx PINB1
+#endif
+#define UART_Tx 1
+#define UART_Rx 0
 #define BAUD_RATE 115200
 
 .section .bootloader,"ax",@progbits
