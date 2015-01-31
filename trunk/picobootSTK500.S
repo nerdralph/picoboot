@@ -21,11 +21,18 @@
 /* AVR CPU definitions based on -mmcu flag */
 #include <avr/io.h>
 
+#define LEDPIN 5
+#define LEDPORT PORTB
+
 /* following defines are missing in avr-libc
  * see bug #42957  
  */
+#ifndef SPMEN
 #define SPMEN 0
+#endif
+#ifndef SIGRD
 #define SIGRD 5
+#endif
 
 #include "stk500.h"
 
@@ -43,11 +50,17 @@
 ; use -WL,--section-start=.bootloader=0xXf00
 
 Boot:
-;	sbis UART_Port, UART_Rx 		; run bootloader if serial connected
     in rTEMP, MCUSR
-	sbrs rTEMP, EXTRF   		    ; run bootloader on external reset
-	rjmp StartApp					; jump to application code
+	cpi rTEMP, (1<<EXTRF|1<<PORF)   ; run bootloader on external reset
+    breq CommandLoop
+    sbr rTEMP, PORF
+    out MCUSR, rTEMP                ; ensure PORF set in case of dbl reset
+	rjmp StartApp                   ; jump to application code
 
+BootLoader:
+    cbr rTEMP, PORF
+    out MCUSR, rTEMP                ; clear PORF to show bootloader run 
+    sbi LEDPORT, LEDPIN             ; light LED dimly during bootloader
 CommandLoop:
     rcall RxPacket
 	ldi r26, STK_INSYNC 
@@ -240,6 +253,7 @@ Delay3Cycle:
 
 ; set registers to reset state then start app
 StartApp:
-  cbi UART_Port-1, UART_Tx
-  cbi UART_Port, UART_Tx
+    cbi UART_Port-1, UART_Tx
+    cbi UART_Port, UART_Tx
+    sbi LEDPORT, LEDPIN             ; turn off LED
 ; slide into reset vector at address 0x0000
