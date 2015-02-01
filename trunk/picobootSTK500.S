@@ -21,6 +21,12 @@
 /* AVR CPU definitions based on -mmcu flag */
 #include <avr/io.h>
 
+#ifdef DEBUG
+/* for simulavr debugging */
+#   define debug_output_port 0x31
+#   define debug_input_port 0x32
+#endif
+
 #define LEDPIN 5
 #define LEDPORT PORTB
 
@@ -217,6 +223,10 @@ ResetPacketPtr:
 
 ; transmit byte contained in r26 - 12 instructions
 TxByte:
+#ifdef DEBUG
+    out debug_output_port, r26
+    ret    
+#endif
 	sbi UART_Port-1, UART_Tx		; set Tx line to output
 	cbi UART_Port, UART_Tx			; start bit
 	in r0, UART_Port
@@ -235,6 +245,10 @@ TxLoop:
 
 ; receive byte into r24 - 11 instructions
 RxByte:
+#ifdef DEBUG
+    in r24, debug_input_port
+    ret    
+#endif
 	ldi r24, 0x80               ; bit shift counter
 	ldi delayArg, RXSTART       ; 1.5 bit delay
 WaitStart:
