@@ -44,6 +44,24 @@
 #define PgLen r18
 #define MemType r19
 
+.text
+Blink:
+    sbi PINB, LEDPIN
+    ldi ZH, 60
+DelayLoop:
+    ; 11.8M cycles =~ .74s @ 16Mhz
+    rcall Delay3Cycle               ; 256 * 3 cycles
+    sbiw ZL, 1
+    brne DelayLoop
+    rjmp Blink
+
+; delay 3 cycles * r24 + 4 cycles (ret instruction)
+; also clears carry (subi instead of dec)
+Delay3Cycle:
+    subi r24, 1
+    brne Delay3Cycle
+    ret
+
 .section .bootloader,"ax",@progbits
 ; use -WL,--section-start=.bootloader=0xXf00
 
