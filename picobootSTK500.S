@@ -135,6 +135,8 @@ ReadSig:
 Quit:
 	cpi rCOMMAND, STK_LEAVE_PROGMODE
 	brne ProgPage
+	ldi r26, STK_OK
+	rcall TxByte                    ; reply OK
 	rjmp StartApp
 
 ProgPage:
@@ -223,6 +225,8 @@ RxByte:
 ; set registers to reset state then start app
 StartApp:
     clr r15                         ; flag bootloader not run
+    ; reset UART
+    std Y+(UCSR0B - UCSR0A), r15
     ; reset USART
-    sbi LEDPORT, LEDPIN             ; turn off LED
+    cbi LEDPORT, LEDPIN             ; turn off LED
 ; slide into reset vector at address 0x0000
