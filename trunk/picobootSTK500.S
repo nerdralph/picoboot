@@ -38,7 +38,7 @@
 
 #include "stk500.h"
 
-#define TmpWord r14
+#define TmpWord r12
 #define rCOMMAND r16
 #define rTEMP r17
 #define PgLen r18
@@ -67,15 +67,14 @@ Delay3Cycle:
 
 Boot:
     in rTEMP, MCUSR
-	cpi rTEMP, (1<<EXTRF|1<<PORF)   ; run bootloader on external reset
-    breq CommandLoop
-    sbr rTEMP, PORF
-    out MCUSR, rTEMP                ; ensure PORF set in case of dbl reset
+	sbrs rTEMP, EXTRF
+JmpStart:
 	rjmp StartApp                   ; jump to application code
+    eor r15, rTEMP                  ; toggle r15 to signal bootloader run
+    breq JmpStart
 
 BootLoader:
-    cbr rTEMP, PORF
-    out MCUSR, rTEMP                ; clear PORF to show bootloader run 
+    mov r15, rTEMP                  ; flag bootloader run
     sbi LEDPORT, LEDPIN             ; light LED dimly during bootloader
 
     ; inialize UART IO base pointer
@@ -86,7 +85,7 @@ BootLoader:
     st Y, rTEMP
     ldi rTEMP, 16                   ; 115200kbps @16Mhz
     std Y+(UBRR0L - UCSR0A), rTEMP
-    ldi rTEMP, (1<<RXEN0) | (1<<TXEN0)
+    ldi rTEMP, (1<<RXEN0 | 1<<TXEN0)
     std Y+(UCSR0B - UCSR0A), rTEMP
 
 CommandLoop:
@@ -223,6 +222,7 @@ RxByte:
 
 ; set registers to reset state then start app
 StartApp:
+    clr r15                         ; flag bootloader not run
     ; reset USART
     sbi LEDPORT, LEDPIN             ; turn off LED
 ; slide into reset vector at address 0x0000
