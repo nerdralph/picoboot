@@ -39,10 +39,11 @@
 #include "stk500.h"
 
 #define TmpWord r12
-#define rCOMMAND r16
-#define rTEMP r17
+#define Command r16
+#define Temp r17
 #define PgLen r18
 #define MemType r19
+#define Temp2 r20
 
 .text
 Blink:
@@ -66,35 +67,35 @@ Delay3Cycle:
 ; use -WL,--section-start=.bootloader=0xXf00
 
 Boot:
-    in rTEMP, MCUSR
-	sbrs rTEMP, EXTRF
+    in Temp, MCUSR
+	sbrs Temp, EXTRF
 JmpStart:
-	rjmp StartApp                   ; jump to application code
-    eor r15, rTEMP                  ; toggle r15 to signal bootloader run
+	rjmp StartApp                  ; jump to application code
+    eor r15, Temp                  ; toggle r15 to signal bootloader run
     breq JmpStart
 
 BootLoader:
-    mov r15, rTEMP                  ; flag bootloader run
-    sbi LEDPORT, LEDPIN             ; light LED dimly during bootloader
+    mov r15, Temp                  ; flag bootloader run
+    sbi LEDPORT, LEDPIN            ; light LED dimly during bootloader
 
     ; inialize UART IO base pointer
     ldi YL, lo8(UCSR0A)
     clr YH
     ; initialize UART
-    ldi rTEMP, (1<<U2X0)
-    st Y, rTEMP
-    ldi rTEMP, 16                   ; 115200kbps @16Mhz
-    std Y+(UBRR0L - UCSR0A), rTEMP
-    ldi rTEMP, (1<<RXEN0 | 1<<TXEN0)
-    std Y+(UCSR0B - UCSR0A), rTEMP
+    ldi Temp, (1<<U2X0)
+    st Y, Temp
+    ldi Temp, 16                    ; 115200kbps @16Mhz
+    std Y+(UBRR0L - UCSR0A), Temp
+    ldi Temp, (1<<RXEN0 | 1<<TXEN0)
+    std Y+(UCSR0B - UCSR0A), Temp
 
 CommandLoop:
 	rcall RxByte					; read command
-	mov rCOMMAND, r24
+	mov Command, r24
 	ldi r26, STK_INSYNC 
 	rcall TxByte                    ; all responses start with INSYNC
 
-	cpi rCOMMAND, STK_LOAD_ADDRESS
+	cpi Command, STK_LOAD_ADDRESS
 	brne Universal
 	rcall RxByte
 	mov ZL, r24
@@ -103,15 +104,18 @@ CommandLoop:
     lsl ZL
     rol ZH                          ; convert from word to byte address
 
+    ldi Temp, (1<<RWWSRE)|(1<<SPMEN);enable RWW
+	rcall DoSPM
+
 Universal:
-	cpi rCOMMAND, STK_UNIVERSAL
+	cpi Command, STK_UNIVERSAL
 	brne GetParam
     ; command ignored - return dummy 0x00
     clr r26
     rcall TxByte
 
 GetParam:
-	cpi rCOMMAND, STK_GET_PARAMETER
+	cpi Command, STK_GET_PARAMETER
 	brne ReadSig
     ; return 0x03 for all parameters - Optiboot comments say
     ; its enough to keep Avrdude happy
@@ -123,7 +127,7 @@ GetParam:
     rcall TxByte
 
 ReadSig:
-	cpi rCOMMAND, STK_READ_SIGN
+	cpi Command, STK_READ_SIGN
 	brne Quit
     ldi r26, SIGNATURE_0
     rcall TxByte
@@ -133,14 +137,14 @@ ReadSig:
     rcall TxByte
 
 Quit:
-	cpi rCOMMAND, STK_LEAVE_PROGMODE
+	cpi Command, STK_LEAVE_PROGMODE
 	brne ProgPage
 	ldi r26, STK_OK
 	rcall TxByte                    ; reply OK
 	rjmp StartApp
 
 ProgPage:
-	cpi rCOMMAND, STK_PROG_PAGE
+	cpi Command, STK_PROG_PAGE
 	brne ReadPage
     rcall GetPageParams
     brne Default                    ; only flash supported
@@ -150,19 +154,19 @@ PageFill:
 	mov r0, r24                     ; word low byte 
 	rcall RxByte
 	mov r1, r24                     ; word high byte 
-    ldi rTEMP, (1<<SPMEN)           ; fill page buffer
+    ldi Temp, (1<<SPMEN)            ; fill page buffer
 	rcall DoSPM
 	adiw ZL, 2                      ; increment Z pointer
 	subi PgLen, 2
 	brne PageFill
     movw ZL, TmpWord                ; restore Z
-    ldi rTEMP, (1<<PGERS)|(1<<SPMEN)    ;erase page
+    ldi Temp, (1<<PGERS)|(1<<SPMEN) ;erase page
 	rcall DoSPM
-    ldi rTEMP, (1<<PGWRT)|(1<<SPMEN)    ;write page
+    ldi Temp, (1<<PGWRT)|(1<<SPMEN) ;write page
 	rcall DoSPM
 
 ReadPage:
-	cpi rCOMMAND, STK_READ_PAGE
+	cpi Command, STK_READ_PAGE
     brne Default 
     rcall GetPageParams
     brne Default                    ; only flash supported
@@ -192,9 +196,12 @@ GetPageParams:
 
 
 DoSPM:
-  out SPMCSR, rTEMP
-  spm
-  ret
+    in Temp2, SPMCSR
+    sbrc Temp2, SPMEN
+    rjmp DoSPM                      ; wait for last SPM to complete
+    out SPMCSR, Temp
+    spm
+    ret
 
 /* UART code */
 
@@ -204,8 +211,8 @@ TxByte:
     out debug_output_port, r26
     ret    
 #endif
-    ld rTEMP, Y
-    sbrs rTEMP, UDRE0
+    ld Temp, Y
+    sbrs Temp, UDRE0
     rjmp TxByte
     std Y+(UDR0 - UCSR0A), r26
 	ret
@@ -216,8 +223,8 @@ RxByte:
     in r24, debug_input_port
     ret    
 #endif
-    ld rTEMP, Y
-    sbrs rTEMP, RXC0
+    ld Temp, Y
+    sbrs Temp, RXC0
     rjmp RxByte
     ldd r24, Y+(UDR0 - UCSR0A)
     ret
