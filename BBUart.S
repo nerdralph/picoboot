@@ -4,22 +4,27 @@
  * @16Mhz = 139 cycles/bit
  * @author: Ralph Doncaster 2014
  * @version: $Id$
+ * macro definition help from Joey Morin
  */
 
 #define UART_Port PORTB
-#define UART_Tx PINB0
-#define UART_Rx PINB1
+#define UART_Tx 0
+#define UART_Rx 1
+#define BAUD_RATE 115200
+#define F_CPU 8000000
 
+#define DIVIDE_ROUNDED(NUMERATOR, DIVISOR) ((((2*(NUMERATOR))/(DIVISOR))+1)/2)
+
+; txbit takes 3*RXDELAY + 14 cycles
 #define delayArg r22
-; 3 * 18 - 1 = 53 cycles
-#define TXDELAY 18
-; USE 42 @ 16Mhz 
+;define TXDELAY 18
+#define BIT_CYCLES DIVIDE_ROUNDED(F_CPU,BAUD_RATE) 
+#define TXDELAY DIVIDE_ROUNDED(BIT_CYCLES - 14, 3)
 
-#define RXSTART 32
-; use 67 @ 16Mhz
-; 3 * 19 - 1 = 56 cycles
-#define RXDELAY 19
-; USE 42 @ 16Mhz 
+; rxbit takes 3*RXDELAY + 12 cycles
+#define RXSTART_CYCLES DIVIDE_ROUNDED(3*F_CPU,2*BAUD_RATE) 
+#define RXSTART DIVIDE_ROUNDED(RXSTART_CYCLES - 12, 3)
+#define RXDELAY DIVIDE_ROUNDED(BIT_CYCLES - 12, 3)
 
 ; transmit byte contained in r24 - 12 instructions
 ; AVR305 has 1 cycle of jitter per bit, this has none
@@ -38,13 +43,6 @@ TxLoop:
 	ror r24							; 2-byte shift register
 	out UART_Port, r0
 	brne TxLoop
-	; fall into delay for stop bit = 1 = idle state
-
-; delay (3 cycle * delayArg) -1 + 4 cycles (ret instruction)
-; also clears carry (subi instead of dec) to save 1 instr in RxBit
-Delay3Cycle:
-	subi delayArg, 1
-	brne delay3Cycle
 	ret
 
 ; receive byte into r24 - 11 instructions
@@ -62,4 +60,11 @@ RxBit:
 	sec
 	ror r24
 	brcc RxBit
+	; fall into delay for stop bit
+
+; delay (3 cycle * delayArg) -1 + 4 cycles (ret instruction)
+; also clears carry (subi instead of dec) to save 1 instr in RxBit
+Delay3Cycle:
+	subi delayArg, 1
+	brne Delay3Cycle
 	ret
