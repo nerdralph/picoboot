@@ -1,3 +1,6 @@
+# set DEVICE, ADDRESS, & FUSEFLAGS then run
+# make; make flash
+
 DEVICE = atmega328p
 ADDRESS = 0x7E00 
 FUSEFLAGS = -U hfuse:w:0xde:m -U lfuse:w:0xff:m
