@@ -1,8 +1,7 @@
 /* picoBootSTK500 - arduino compatible bootloader
  *
- * TTL serial version - 81N, 115.2kbps
+ * TTL serial version - 81N, 115.2kbps @16Mhz, 57.6kbps@8Mhz
  * @author: Ralph Doncaster
- * @version: $Id$
  * code ideas from:
  * http://jtxp.org/tech/tinysafeboot_en.htm
  * https://code.google.com/p/optiboot/
@@ -10,7 +9,7 @@
  * 
  * This bootloader is an implementation of the Arduino bootloader,
  * a stripped-down STK500 protocol, in assembler.
- * Optiboot is the primary guide for this bootloader 
+ * Optiboot is the main guide for this bootloader.
  * protocol trace from Bald Wisdom blog
  * http://baldwisdom.com/bootloading/ 
  */
@@ -68,9 +67,9 @@ Delay3Cycle:
 
 Boot:
     in Temp, MCUSR
-	sbrs Temp, EXTRF
+    sbrs Temp, EXTRF
 JmpStart:
-	rjmp StartApp                  ; jump to application code
+    rjmp StartApp                  ; jump to application code
     eor r15, Temp                  ; toggle r15 to signal bootloader run
     breq JmpStart
 
@@ -90,33 +89,30 @@ BootLoader:
     std Y+(UCSR0B - UCSR0A), Temp
 
 CommandLoop:
-	rcall RxByte					; read command
-	mov Command, r24
-	ldi r26, STK_INSYNC 
-	rcall TxByte                    ; all responses start with INSYNC
+    rcall RxByte                    ; read command
+    mov Command, r24
+    ldi r26, STK_INSYNC 
+    rcall TxByte                    ; all responses start with INSYNC
 
-	cpi Command, STK_LOAD_ADDRESS
-	brne Universal
-	rcall RxByte
-	mov ZL, r24
-	rcall RxByte
-	mov ZH, r24                     ; Z stores address for page load
+    cpi Command, STK_LOAD_ADDRESS
+    brne Universal
+    rcall RxByte
+    mov ZL, r24
+    rcall RxByte
+    mov ZH, r24                     ; Z stores address for page load
     lsl ZL
     rol ZH                          ; convert from word to byte address
 
-    ldi Temp, (1<<RWWSRE)|(1<<SPMEN);enable RWW
-	rcall DoSPM
-
 Universal:
-	cpi Command, STK_UNIVERSAL
-	brne GetParam
+    cpi Command, STK_UNIVERSAL
+    brne GetParam
     ; command ignored - return dummy 0x00
     clr r26
     rcall TxByte
 
 GetParam:
-	cpi Command, STK_GET_PARAMETER
-	brne ReadSig
+    cpi Command, STK_GET_PARAMETER
+    brne ReadSig
     ; return 0x03 for all parameters - Optiboot comments say
     ; its enough to keep Avrdude happy
     ; also means 03 is reply to major and minor version
@@ -127,8 +123,8 @@ GetParam:
     rcall TxByte
 
 ReadSig:
-	cpi Command, STK_READ_SIGN
-	brne Quit
+    cpi Command, STK_READ_SIGN
+    brne Quit
     ldi r26, SIGNATURE_0
     rcall TxByte
     ldi r26, SIGNATURE_1
@@ -137,61 +133,76 @@ ReadSig:
     rcall TxByte
 
 Quit:
-	cpi Command, STK_LEAVE_PROGMODE
-	brne ProgPage
-	ldi r26, STK_OK
-	rcall TxByte                    ; reply OK
-	rjmp StartApp
+    cpi Command, STK_LEAVE_PROGMODE
+    brne ProgPage
+    ldi r26, STK_OK
+    rcall TxByte                    ; reply OK
+    ; enable reading RWW section before starting application
+    ; see ATmega88/168/328 datasheet 27.9.1
+    ldi Temp, (1<<RWWSRE)|(1<<SPMEN)
+    rcall DoSPM
+    rjmp StartApp
 
 ProgPage:
-	cpi Command, STK_PROG_PAGE
-	brne ReadPage
+    ; faster to erase first, read, then write?
+    cpi Command, STK_PROG_PAGE
+    brne ReadPage
     rcall GetPageParams
+    cpi r24, 'F'                    ; check for memtype flash
     brne Default                    ; only flash supported
     movw TmpWord, ZL                ; save Z
 PageFill:
-	rcall RxByte
-	mov r0, r24                     ; word low byte 
-	rcall RxByte
-	mov r1, r24                     ; word high byte 
+    rcall RxByte
+    mov r0, r24                     ; word low byte 
+    rcall RxByte
+    mov r1, r24                     ; word high byte 
     ldi Temp, (1<<SPMEN)            ; fill page buffer
-	rcall DoSPM
-	adiw ZL, 2                      ; increment Z pointer
-	subi PgLen, 2
-	brne PageFill
+    rcall DoSPM
+    adiw ZL, 2                      ; increment Z pointer
+    subi PgLen, 2
+    brne PageFill
     movw ZL, TmpWord                ; restore Z
     ldi Temp, (1<<PGERS)|(1<<SPMEN) ;erase page
-	rcall DoSPM
+    rcall DoSPM
     ldi Temp, (1<<PGWRT)|(1<<SPMEN) ;write page
-	rcall DoSPM
+    rcall DoSPM
 
 ReadPage:
-	cpi Command, STK_READ_PAGE
+    cpi Command, STK_READ_PAGE
     brne Default 
     rcall GetPageParams
-    brne Default                    ; only flash supported
-ReadFlashByte:
-	lpm r26, Z+
-	rcall TxByte
-	dec PgLen
-	brne ReadFlashByte
+    ; read both flash and EE, but only send memtype that was requested
+    ; reduces code to one loop instead of two 
+ReadByte:
+    lpm r26, Z+
+ReadEEPROM:
+    cpi r24, 'E'                    ; check for memtype EEPROM
+    brne SendByte
+ReadEEByte:
+    out EEARL, ZL
+    out EEARH, ZH
+    sbi EECR, EERE
+    in r26, EEDR
+SendByte:
+    rcall TxByte
+    dec PgLen
+    brne ReadEEByte
 
 Default:
     ; read to EOP
-	rcall RxByte
+    rcall RxByte
     cpi r24, CRC_EOP
-    brne Default					; read until EOP
-	ldi r26, STK_OK
-	rcall TxByte                    ; reply OK
+    brne Default                    ; read until EOP
+    ldi r26, STK_OK
+    rcall TxByte                    ; reply OK
     rjmp CommandLoop
 
 ; get length and flash type for write or read page
 GetPageParams:
-	rcall RxByte                    ; ignore block size hi byte
-	rcall RxByte
-	mov PgLen, r24                  ; block size
-	rcall RxByte					; memory type
-    cpi r24, 'F'                    ; check for memtype flash
+    rcall RxByte                    ; ignore block size hi byte
+    rcall RxByte
+    mov PgLen, r24                  ; block size
+    rcall RxByte                    ; memory type
     ret
 
 
@@ -215,7 +226,7 @@ TxByte:
     sbrs Temp, UDRE0
     rjmp TxByte
     std Y+(UDR0 - UCSR0A), r26
-	ret
+    ret
 
 ; receive byte into r24
 RxByte:
