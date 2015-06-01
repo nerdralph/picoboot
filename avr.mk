@@ -30,7 +30,7 @@ flash:  $(TARGET).hex
 	avrdude -C /etc/avrdude.conf -p $(DEVICE) -c $(PROGRAMMER) -U flash:w:$(TARGET).hex $(FUSEFLAGS)
 
 # lfuse 0xe2 = 8Mhz internal RC, ckdiv1, 64ms SUT
-#fuses:
+fuses8mrc:
 	avrdude -C /etc/avrdude.conf -p $(DEVICE) -c $(PROGRAMMER) -U lfuse:w:0xe2:m
 
 clean:
