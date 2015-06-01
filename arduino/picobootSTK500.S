@@ -12,6 +12,8 @@
  * Optiboot is the main guide for this bootloader.
  * protocol trace from Bald Wisdom blog
  * http://baldwisdom.com/bootloading/ 
+ *
+ * 20150601 v1 release - includes EEPROM read
  */
 
 /* needed for <avr/io.h> to give io constant addresses */
