@@ -37,12 +37,11 @@
 
 #include "stk500.h"
 
-#define TmpWord r12
 #define Command r16
 #define Temp r17
 #define PgLen r18
 #define MemType r19
-#define Temp2 r20
+#define SpmArg r20
 
 .text
 Blink:
@@ -56,9 +55,8 @@ DelayLoop:
     rjmp Blink
 
 ; delay 3 cycles * r24 + 4 cycles (ret instruction)
-; also clears carry (subi instead of dec)
 Delay3Cycle:
-    subi r24, 1
+    dec r24
     brne Delay3Cycle
     ret
 
@@ -137,10 +135,6 @@ Quit:
     brne ProgPage
     ldi r26, STK_OK
     rcall TxByte                    ; reply OK
-    ; enable reading RWW section before starting application
-    ; see ATmega88/168/328 datasheet 27.9.1
-    ldi Temp, (1<<RWWSRE)|(1<<SPMEN)
-    rcall DoSPM
     rjmp StartApp
 
 ProgPage:
@@ -150,22 +144,23 @@ ProgPage:
     rcall GetPageParams
     cpi r24, 'F'                    ; check for memtype flash
     brne Default                    ; only flash supported
-    movw TmpWord, ZL                ; save Z
 PageFill:
     rcall RxByte
     mov r0, r24                     ; word low byte 
     rcall RxByte
     mov r1, r24                     ; word high byte 
-    ldi Temp, (1<<SPMEN)            ; fill page buffer
+    ldi SpmArg, (1<<SPMEN)          ; fill page buffer
     rcall DoSPM
     adiw ZL, 2                      ; increment Z pointer
     subi PgLen, 2
     brne PageFill
-    movw ZL, TmpWord                ; restore Z
-    ldi Temp, (1<<PGERS)|(1<<SPMEN) ;erase page
+    sbiw ZL, 2                      ; roll Z back
+    ldi SpmArg, (1<<PGERS)|(1<<SPMEN)
     rcall DoSPM
-    ldi Temp, (1<<PGWRT)|(1<<SPMEN) ;write page
+    ldi SpmArg, (1<<PGWRT)|(1<<SPMEN) ;write page
     rcall DoSPM
+    ; if in RWW section, page write will continue asynchronously
+    ; while bootloader runs
 
 ReadPage:
     cpi Command, STK_READ_PAGE
@@ -186,13 +181,18 @@ ReadEEByte:
 SendByte:
     rcall TxByte
     dec PgLen
-    brne ReadEEByte
+    brne ReadByte
 
 Default:
     ; read to EOP
     rcall RxByte
     cpi r24, CRC_EOP
     brne Default                    ; read until EOP
+    ; enable reading RWW section - ensures last spm completed before
+    ; returning STK_OK
+    ; for RWW info see ATmega88/168/328 datasheet 27.9.1
+    ldi SpmArg, (1<<RWWSRE)|(1<<SPMEN)
+    rcall DoSPM
     ldi r26, STK_OK
     rcall TxByte                    ; reply OK
     rjmp CommandLoop
@@ -207,10 +207,10 @@ GetPageParams:
 
 
 DoSPM:
-    in Temp2, SPMCSR
-    sbrc Temp2, SPMEN
+    in Temp, SPMCSR
+    sbrc Temp, SPMEN
     rjmp DoSPM                      ; wait for last SPM to complete
-    out SPMCSR, Temp
+    out SPMCSR, SpmArg
     spm
     ret
 
