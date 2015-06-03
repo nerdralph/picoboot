@@ -171,13 +171,13 @@ ReadPage:
     ; read both flash and EE, but only send memtype that was requested
     ; reduces code to one loop instead of two 
 ReadByte:
+    out EEARL, ZL
+    out EEARH, ZH
     lpm r26, Z+
 ReadEEPROM:
     cpi r24, 'E'                    ; check for memtype EEPROM
     brne SendByte
 ReadEEByte:
-    out EEARL, ZL
-    out EEARH, ZH
     sbi EECR, EERE
     in r26, EEDR
 SendByte:
