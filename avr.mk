@@ -10,9 +10,6 @@ PROGRAMMER ?= usbasp
 # export TARGET=app
 
 CC = avr-gcc -mmcu=$(DEVICE) -DF_CPU=$(CPU_SPEED)
-#LDLIBS = libs/libs.a
-#LIBDIR = libs/
-#CFLAGS += -I $(LIBDIR)
 
 CFLAGS += -ffunction-sections -Wl,--gc-sections
 CFLAGS += -Os -Wall -mrelax
@@ -30,6 +27,7 @@ flash:  $(TARGET).hex
 	avrdude -C /etc/avrdude.conf -p $(DEVICE) -c $(PROGRAMMER) -U flash:w:$(TARGET).hex $(FUSEFLAGS)
 
 # lfuse 0xe2 = 8Mhz internal RC, ckdiv1, 64ms SUT
+# for t84 & t88 - not for all AVRs
 fuses8mrc:
 	avrdude -C /etc/avrdude.conf -p $(DEVICE) -c $(PROGRAMMER) -U lfuse:w:0xe2:m
 
