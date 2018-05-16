@@ -46,6 +46,10 @@
 #define SpmArg r20
 
 .text
+; this will be address 0x0000 which is the reset vector
+; user application will over-write blink code
+; dimly lights LED (using internal pullup) with a 1.5 s cycle time
+ResetVector:
 Blink:
     sbi PINB, LEDPIN
     ldi ZH, 60
@@ -62,16 +66,16 @@ Delay3Cycle:
     brne Delay3Cycle
     ret
 
+
 .section .bootloader,"ax",@progbits
 ; use -WL,--section-start=.bootloader=0xXf00
 
 Boot:
     in Temp, MCUSR
     sbrs Temp, EXTRF
-JmpStart:
-    rjmp StartApp                  ; jump to application code
-    eor r15, Temp                  ; toggle r15 to signal bootloader run
-    breq JmpStart
+    rjmp ResetVector               ; jump to application code
+    eor r15, Temp                  ; was bootloader running before reset?
+    breq StartApp
 
 BootLoader:
     mov r15, Temp                  ; flag bootloader run
@@ -137,7 +141,13 @@ Quit:
     brne ProgPage
     ldi r26, STK_OK
     rcall TxByte                    ; reply OK
-    rjmp StartApp
+StartApp:
+    ; set registers to reset state then start app
+    ; reset UART - YH is zero
+    std Y+(UCSR0B - UCSR0A), YH
+    ; reset USART
+    cbi LEDPORT, LEDPIN             ; turn off LED
+    rjmp ResetVector                ; jump to application code
 
 ProgPage:
     ; faster to erase first, read, then write?
@@ -199,6 +209,7 @@ Default:
     rcall TxByte                    ; reply OK
     rjmp CommandLoop
 
+
 ; get length and flash type for write or read page
 GetPageParams:
     rcall RxByte                    ; ignore block size hi byte
@@ -215,6 +226,7 @@ DoSPM:
     out SPMCSR, SpmArg
     spm
     ret
+
 
 /* UART code */
 
@@ -242,11 +254,3 @@ RxByte:
     ldd r24, Y+(UDR0 - UCSR0A)
     ret
 
-; set registers to reset state then start app
-StartApp:
-    clr r15                         ; flag bootloader not run
-    ; reset UART
-    std Y+(UCSR0B - UCSR0A), r15
-    ; reset USART
-    cbi LEDPORT, LEDPIN             ; turn off LED
-; slide into reset vector at address 0x0000
