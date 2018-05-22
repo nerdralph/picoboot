@@ -48,12 +48,11 @@
 
 .text
 ; this will be address 0x0000 which is the reset vector
-; user application will over-write blink code
+; user application will over-write 20-byte blink code
 ; dimly lights LED (using internal pullup) with a 1.5 s cycle time
 ResetVector:
     clr r1                          ; avr-libc does this when app is flashed
     sbi PINB, LEDPIN
-    sbi DDRB, LEDPIN
     ldi ZH, 60
 DelayLoop:
     ; 11.8M cycles =~ .74s @ 16Mhz
@@ -136,7 +135,7 @@ GetParam:
 
 ReadSig:
     cpi Command, STK_READ_SIGN
-    brne ProgPage
+    brne Quit
     ldi r26, SIGNATURE_0
     rcall TxByte
     ldi r26, SIGNATURE_1
@@ -144,20 +143,25 @@ ReadSig:
     ldi r26, SIGNATURE_2
     rcall TxByte
 
-;Quit:
+Quit:
     ; Ignored - user must reset AVR after programming
-    ;cpi Command, STK_LEAVE_PROGMODE
-    ;brne ProgPage
-    ;ldi r26, STK_OK
-    ;rcall TxByte                    ; reply OK
+    cpi Command, STK_LEAVE_PROGMODE
+    brne ProgPage
+    ldi r26, STK_OK
+    rcall TxByte                    ; reply OK
     ; wait for tx to complete before shutting off uart
-;1:  adiw XL, 1
-    ;brne 1b
+1:  adiw XL, 1
+    brne 1b
     ; set registers to reset state then start app
     ; reset UART - YH is zero
-    ;std Y+(UCSR0B - UCSR0A), YH
-    ;std Y+(UBRR0L - UCSR0A), YH
-    ;st Y, YH
+    st Y, YH
+    std Y+(UCSR0B - UCSR0A), YH
+    std Y+(UBRR0L - UCSR0A), YH
+
+StartApp:
+    ;cbi LEDPORT, LEDPIN            ; turn off LED
+    cbi UART_PIN+1, 1               ; turn off Tx
+    rjmp ResetVector
 
 ProgPage:
     ; faster to erase first, read, then write?
@@ -262,8 +266,3 @@ RxByte:
     rjmp RxByte
     ldd r24, Y+(UDR0 - UCSR0A)
     ret
-
-StartApp:
-    ;cbi LEDPORT, LEDPIN             ; turn off LED
-    ; slide into reset vector
-    ;rjmp ResetVector                ; jump to application code
