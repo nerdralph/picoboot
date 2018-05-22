@@ -36,6 +36,7 @@
 
 #define LEDPIN 5
 #define LEDPORT PORTB
+#define UART_PIN PIND
 
 #include "stk500.h"
 
@@ -50,15 +51,16 @@
 ; user application will over-write blink code
 ; dimly lights LED (using internal pullup) with a 1.5 s cycle time
 ResetVector:
-Blink:
+    clr r1                          ; avr-libc does this when app is flashed
     sbi PINB, LEDPIN
+    sbi DDRB, LEDPIN
     ldi ZH, 60
 DelayLoop:
     ; 11.8M cycles =~ .74s @ 16Mhz
     rcall Delay3Cycle               ; 256 * 3 cycles
     sbiw ZL, 1
     brne DelayLoop
-    rjmp Blink
+    rjmp ResetVector
 
 ; delay 3 cycles * r24 + 4 cycles (ret instruction)
 Delay3Cycle:
@@ -68,33 +70,48 @@ Delay3Cycle:
 
 
 .section .bootloader,"ax",@progbits
-; use -WL,--section-start=.bootloader=0xXf00
-
-Boot:
-    in Temp, MCUSR
-    sbrs Temp, EXTRF
-    rjmp ResetVector               ; jump to application code
-    eor r15, Temp                  ; was bootloader running before reset?
-    breq StartApp
+; use -WL,--section-start=.bootloader=0xXX00
 
 BootLoader:
-    mov r15, Temp                  ; flag bootloader run
-    sbi LEDPORT, LEDPIN            ; light LED dimly during bootloader
+    ;sbi LEDPORT, LEDPIN             ; light LED dimly during bootloader
+    tst r1                          ; was app running before reset?
+    brne 1f
+    in r1, MCUSR
+    sbrs r1, EXTRF
+1:  rjmp StartApp                   ; jump to application code
 
     ; inialize UART IO base pointer
     ldi YL, lo8(UCSR0A)
     clr YH
+    ;sbi UART_PIN+2, 1              ; pullup tx
+    sbi UART_PIN+1, 1               ; pulldown tx
+    ; autobaud - times the 5 low bits in GET_SYNC 0x30 '0'
+    clr XL
+    clr XH
+1:  sbic UART_PIN, 0                ; wait for start bit
+    rjmp 1b
+1:  adiw XL, 1                      ; count low time
+    sbis UART_PIN, 0
+    rjmp 1b
+    lsr XH
+    ror XL
+    lsr XH
+    ror XL
+    lsr XL
+    dec XL                          ; final UBRR value
+
     ; initialize UART
     ldi Temp, (1<<U2X0)
     st Y, Temp
-    ldi Temp, 16                    ; 115200kbps @16Mhz
-    std Y+(UBRR0L - UCSR0A), Temp
+    std Y+(UBRR0L - UCSR0A), XL
     ldi Temp, (1<<RXEN0 | 1<<TXEN0)
     std Y+(UCSR0B - UCSR0A), Temp
 
+    ;rcall TxByte                    ; debug UBRR calc
+
 CommandLoop:
     rcall RxByte                    ; read command
-    mov Command, r24
+1:  mov Command, r24
     ldi r26, STK_INSYNC 
     rcall TxByte                    ; all responses start with INSYNC
 
@@ -109,26 +126,17 @@ CommandLoop:
 
 Universal:
     cpi Command, STK_UNIVERSAL
-    brne GetParam
-    ; command ignored - return dummy 0x00
-    clr r26
-    rcall TxByte
-
+    breq 1f                         ; dummy reply
 GetParam:
     cpi Command, STK_GET_PARAMETER
     brne ReadSig
-    ; return 0x03 for all parameters - Optiboot comments say
-    ; its enough to keep Avrdude happy
-    ; also means 03 is reply to major and minor version
-    ; looking at the Avrdude stk500 code I think it may be safe to return
-    ; 0x00 and comine this response with the STK_UNIVERSAL response
-    ; to save 2 instructions
-    ldi r26, 0x03
+    ; command ignored - return dummy 0x00 for Universal/Version Param
+1:  clr r26
     rcall TxByte
 
 ReadSig:
     cpi Command, STK_READ_SIGN
-    brne Quit
+    brne ProgPage
     ldi r26, SIGNATURE_0
     rcall TxByte
     ldi r26, SIGNATURE_1
@@ -136,18 +144,20 @@ ReadSig:
     ldi r26, SIGNATURE_2
     rcall TxByte
 
-Quit:
-    cpi Command, STK_LEAVE_PROGMODE
-    brne ProgPage
-    ldi r26, STK_OK
-    rcall TxByte                    ; reply OK
-StartApp:
+;Quit:
+    ; Ignored - user must reset AVR after programming
+    ;cpi Command, STK_LEAVE_PROGMODE
+    ;brne ProgPage
+    ;ldi r26, STK_OK
+    ;rcall TxByte                    ; reply OK
+    ; wait for tx to complete before shutting off uart
+;1:  adiw XL, 1
+    ;brne 1b
     ; set registers to reset state then start app
     ; reset UART - YH is zero
-    std Y+(UCSR0B - UCSR0A), YH
-    ; reset USART
-    cbi LEDPORT, LEDPIN             ; turn off LED
-    rjmp ResetVector                ; jump to application code
+    ;std Y+(UCSR0B - UCSR0A), YH
+    ;std Y+(UBRR0L - UCSR0A), YH
+    ;st Y, YH
 
 ProgPage:
     ; faster to erase first, read, then write?
@@ -196,7 +206,6 @@ SendByte:
     brne ReadByte
 
 Default:
-    ; read to EOP
     rcall RxByte
     cpi r24, CRC_EOP
     brne Default                    ; read until EOP
@@ -254,3 +263,7 @@ RxByte:
     ldd r24, Y+(UDR0 - UCSR0A)
     ret
 
+StartApp:
+    ;cbi LEDPORT, LEDPIN             ; turn off LED
+    ; slide into reset vector
+    ;rjmp ResetVector                ; jump to application code
