@@ -4,19 +4,21 @@
 # DEVICE = atmega328p
 # CPU_SPEED = 16000000
 # PROGRAMMER = usbasp -B 4
-PROGRAMMER ?= usbasp
+PROGRAMMER ?= usbasp -B 4
 
 # or export DEVICE=atxxxx in shell 
 # export TARGET=app
 
-CC = avr-gcc -mmcu=$(DEVICE) -DF_CPU=$(CPU_SPEED)
+CC = avr-gcc -mmcu=$(DEVICE) -DF_CPU=$(CPU_SPEED) $(CCFLAGS)
 
 CFLAGS += -ffunction-sections -Wl,--gc-sections
-CFLAGS += -Os -Wall -mrelax
-CFLAGS += -flto
-
+CFLAGS += -Os -Wall
 CFLAGS += -Wno-main
 CFLAGS += --std=gnu99
+
+LDFLAGS += -mrelax
+LDFLAGS += -flto
+LDFLAGS += -mpmem-wrap-around
 
 all: $(TARGET) $(TARGET).hex
 
