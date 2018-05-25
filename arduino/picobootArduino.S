@@ -1,6 +1,6 @@
 /* picoBootSTK500 - arduino compatible bootloader
  *
- * TTL serial version - 81N, 115.2kbps @16Mhz, 57.6kbps@8Mhz
+ * TTL serial version with autobaud 19,200 to 115,200
  * @author: Ralph Doncaster
  * code ideas from:
  * http://jtxp.org/tech/tinysafeboot_en.htm
@@ -14,6 +14,7 @@
  * http://baldwisdom.com/bootloading/ 
  *
  * 20150601 v1 release - includes EEPROM read
+ * 20180525 v2 release with autobaud
  */
 
 /* needed for <avr/io.h> to give io constant addresses */
