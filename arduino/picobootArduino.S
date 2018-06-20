@@ -1,7 +1,7 @@
 /* picoBootSTK500 - arduino compatible bootloader
+ * Ralph Doncaster 2018 GPLv3 license
  *
  * TTL serial version with autobaud 19,200 to 115,200
- * @author: Ralph Doncaster
  * code ideas from:
  * http://jtxp.org/tech/tinysafeboot_en.htm
  * https://code.google.com/p/optiboot/
