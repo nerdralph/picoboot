@@ -73,7 +73,7 @@ Delay3Cycle:
 ; use -WL,--section-start=.bootloader=0xXX00
 
 BootLoader:
-    ;sbi LEDPORT, LEDPIN             ; light LED dimly during bootloader
+    sbi LEDPORT, LEDPIN             ; light LED dimly during bootloader
     tst r1                          ; was app running before reset?
     brne 1f
     in r1, MCUSR
@@ -160,7 +160,7 @@ Quit:
     std Y+(UBRR0L - UCSR0A), YH
 
 StartApp:
-    ;cbi LEDPORT, LEDPIN            ; turn off LED
+    cbi LEDPORT, LEDPIN             ; turn off LED
     cbi UART_PIN+1, 1               ; turn off Tx
     rjmp ResetVector
 
