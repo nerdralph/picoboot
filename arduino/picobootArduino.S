@@ -7,14 +7,15 @@
  * https://code.google.com/p/optiboot/
  * https://github.com/whitequark/vuxboot
  * 
- * This bootloader is an implementation of the Arduino bootloader,
- * a stripped-down STK500 protocol, in assembler.
+ * This is an implementation of the Arduino bootloader in asm
  * Optiboot is the main guide for this bootloader.
  * protocol trace from Bald Wisdom blog
  * http://baldwisdom.com/bootloading/ 
  *
  * 20150601 v1 release - includes EEPROM read
- * 20180525 v2 release with autobaud
+ * 20180525 v2 release with autobaud - 250 bytes
+ * 20200104 v2.01 reduce size
+ * 20200106 v3.00-beta - bootloader timeout instead of mode toggle
  */
 
 /* needed for <avr/io.h> to give io constant addresses */
@@ -22,12 +23,6 @@
 
 /* AVR CPU definitions based on -mmcu flag */
 #include <avr/io.h>
-
-/* work-around for defines missing in avr-libc - bug #42957  
- */
-#ifndef SPMEN
-#define SPMEN 0
-#endif
 
 #ifdef DEBUG
 /* for simulavr debugging */
@@ -43,9 +38,14 @@
 
 #define Command r16
 #define Temp r17
-#define PgLen r18
-#define MemType r19
+#define rxCount r18
+#define pgLen r19
 #define SpmArg r20
+#define rxData r25
+#define rxWord r24
+
+.section .version
+.equ picoboot_version, 256*3
 
 .text
 ; this will be address 0x0000 which is the reset vector
@@ -68,28 +68,31 @@ Delay3Cycle:
     brne Delay3Cycle
     ret
 
-
-.section .bootloader,"ax",@progbits
+.section .bootloader,"ax"
 ; use -WL,--section-start=.bootloader=0xXX00
-
 BootLoader:
     sbi LEDPORT, LEDPIN             ; light LED dimly during bootloader
-    tst r1                          ; was app running before reset?
-    brne 1f
-    in r1, MCUSR
-    sbrs r1, EXTRF
-1:  rjmp StartApp                   ; jump to application code
+    in r2, MCUSR
+    sbrs r2, EXTRF
+    rjmp StartApp                   ; jump to application code
 
-    ; inialize UART IO base pointer
-    ldi YL, lo8(UCSR0A)
-    clr YH
-    ;sbi UART_PIN+2, 1              ; pullup tx
-    sbi UART_PIN+1, 1               ; pulldown tx
-    ; autobaud - times the 5 low bits in GET_SYNC 0x30 '0'
+    ;sbi UART_PIN+1, 1               ; pulldown tx
     clr XL
     clr XH
-1:  sbic UART_PIN, 0                ; wait for start bit
-    rjmp 1b
+    
+    ; wait for start bit of first message
+    ldi YL, 100                     ; 100 =~ 2.5s @16Mhz
+WaitStart:
+    adiw ZL, 1
+    sbis UART_PIN, 0
+    rjmp 1f                         ; got start bit
+    brne WaitStart
+    dec YL
+    brne WaitStart
+    rjmp StartApp                   ; bootloader timout
+
+
+    ; autobaud - times the 5 low bits in GET_SYNC 0x30 '0'
 1:  adiw XL, 1                      ; count low time
     sbis UART_PIN, 0
     rjmp 1b
@@ -100,27 +103,38 @@ BootLoader:
     lsr XL
     dec XL                          ; final UBRR value
 
+    ; inialize UART IO base pointer
+    ldi YL, lo8(UCSR0A)
+    clr YH
     ; initialize UART
     ldi Temp, (1<<U2X0)
     st Y, Temp
     std Y+(UBRR0L - UCSR0A), XL
+
+    ; delay to enable UART after GET_SYNC message is over
+1:  adiw XL, 1
+    brne 1b
     ldi Temp, (1<<RXEN0 | 1<<TXEN0)
     std Y+(UCSR0B - UCSR0A), Temp
 
-    ;rcall TxByte                    ; debug UBRR calc
+    rcall TxByte                    ; debug UBRR calc
+
+WaitSync:
+    rcall RxByte                    ; read command
+    cpi rxData, STK_GET_SYNC
+    brne WaitSync
+    rjmp Default                    ; wait for CRC_EOP
 
 CommandLoop:
     rcall RxByte                    ; read command
-1:  mov Command, r24
+1:  mov Command, rxData
     ldi r26, STK_INSYNC 
     rcall TxByte                    ; all responses start with INSYNC
 
     cpi Command, STK_LOAD_ADDRESS
     brne Universal
-    rcall RxByte
-    mov ZL, r24
-    rcall RxByte
-    mov ZH, r24                     ; Z stores address for page load
+    rcall ReadWord
+    movw ZL, rxWord                 ; Z stores address for page load
     lsl ZL
     rol ZH                          ; convert from word to byte address
 
@@ -136,7 +150,7 @@ GetParam:
 
 ReadSig:
     cpi Command, STK_READ_SIGN
-    brne Quit
+    brne SetDevice
     ldi r26, SIGNATURE_0
     rcall TxByte
     ldi r26, SIGNATURE_1
@@ -144,42 +158,40 @@ ReadSig:
     ldi r26, SIGNATURE_2
     rcall TxByte
 
+SetDevice:
+    cpi Command, STK_SET_DEVICE
+    brne Quit
+    ldi rxCount, 20                 ; skip next 20 bytes
+    rcall RxBytes
+
 Quit:
-    ; Ignored - user must reset AVR after programming
     cpi Command, STK_LEAVE_PROGMODE
     brne ProgPage
     ldi r26, STK_OK
     rcall TxByte                    ; reply OK
-    ; wait for tx to complete before shutting off uart
-1:  adiw XL, 1
-    brne 1b
-    ; set registers to reset state then start app
-    ; reset UART - YH is zero
-    st Y, YH
+
+    ; disable USART RX/TX then start app
     std Y+(UCSR0B - UCSR0A), YH
-    std Y+(UBRR0L - UCSR0A), YH
 
 StartApp:
+    ;cbi UART_PIN+1, 1               ; turn off Tx
     cbi LEDPORT, LEDPIN             ; turn off LED
-    cbi UART_PIN+1, 1               ; turn off Tx
     rjmp ResetVector
 
 ProgPage:
-    ; faster to erase first, read, then write?
     cpi Command, STK_PROG_PAGE
     brne ReadPage
     rcall GetPageParams
-    cpi r24, 'F'                    ; check for memtype flash
+    mov pgLen, rxWord
+    cpi rxData, 'F'                 ; check for memtype flash
     brne Default                    ; only flash supported
 PageFill:
-    rcall RxByte
-    mov r0, r24                     ; word low byte 
-    rcall RxByte
-    mov r1, r24                     ; word high byte 
+    rcall ReadWord
+    movw r0, rxWord                 ; data in r1:r0
     ldi SpmArg, (1<<SPMEN)          ; fill page buffer
     rcall DoSPM
     adiw ZL, 2                      ; increment Z pointer
-    subi PgLen, 2
+    subi pgLen, 2
     brne PageFill
     sbiw ZL, 2                      ; roll Z back
     ldi SpmArg, (1<<PGERS)|(1<<SPMEN)
@@ -193,6 +205,7 @@ ReadPage:
     cpi Command, STK_READ_PAGE
     brne Default 
     rcall GetPageParams
+    mov pgLen, rxWord
     ; read both flash and EE, but only send memtype that was requested
     ; reduces code to one loop instead of two 
 ReadByte:
@@ -200,38 +213,49 @@ ReadByte:
     out EEARH, ZH
     lpm r26, Z+
 ReadEEPROM:
-    cpi r24, 'E'                    ; check for memtype EEPROM
+    cpi rxData, 'E'                 ; check for memtype EEPROM
     brne SendByte
 ReadEEByte:
     sbi EECR, EERE
     in r26, EEDR
 SendByte:
     rcall TxByte
-    dec PgLen
+    dec pgLen
     brne ReadByte
 
 Default:
     rcall RxByte
-    cpi r24, CRC_EOP
+    cpi rxData, CRC_EOP
     brne Default                    ; read until EOP
     ; enable reading RWW section - ensures last spm completed before
     ; returning STK_OK
     ; for RWW info see ATmega88/168/328 datasheet 27.9.1
+#ifdef RWWSRE
     ldi SpmArg, (1<<RWWSRE)|(1<<SPMEN)
     rcall DoSPM
+#endif
     ldi r26, STK_OK
     rcall TxByte                    ; reply OK
     rjmp CommandLoop
 
+; skip n=rxCount bytes
+RxBytes:
+    rcall RxByte
+    dec rxCount
+    brne RxBytes
+    ret
 
 ; get length and flash type for write or read page
 GetPageParams:
     rcall RxByte                    ; ignore block size hi byte
-    rcall RxByte
-    mov PgLen, r24                  ; block size
-    rcall RxByte                    ; memory type
+    rcall ReadWord
+    mov pgLen, rxWord               ; block size
     ret
 
+ReadWord:                           ; read word into rxWord
+    rcall RxByte
+    mov rxWord, rxData              ; rxWord lo
+    rjmp RxByte                     ; rxWord hi
 
 DoSPM:
     in Temp, SPMCSR
@@ -256,14 +280,14 @@ TxByte:
     std Y+(UDR0 - UCSR0A), r26
     ret
 
-; receive byte into r24
+; receive byte into rxData
 RxByte:
 #ifdef DEBUG
-    in r24, debug_input_port
+    in rxData, debug_input_port
     ret    
 #endif
     ld Temp, Y
     sbrs Temp, RXC0
     rjmp RxByte
-    ldd r24, Y+(UDR0 - UCSR0A)
+    ldd rxData, Y+(UDR0 - UCSR0A)
     ret
