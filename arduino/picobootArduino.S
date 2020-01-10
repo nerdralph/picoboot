@@ -16,6 +16,7 @@
  * 20180525 v2 release with autobaud - 250 bytes
  * 20200104 v2.01 reduce size
  * 20200106 v3.00-beta - bootloader timeout instead of mode toggle
+ * 20200110 v3.00-b2 - size reduction to <256b
  */
 
 /* needed for <avr/io.h> to give io constant addresses */
@@ -38,9 +39,10 @@
 
 #define Command r16
 #define Temp r17
-#define rxCount r18
+#define RXEN_TXEN r18
 #define pgLen r19
 #define SpmArg r20
+#define STK_OK_MSG r21
 #define rxData r25
 #define rxWord r24
 
@@ -71,12 +73,12 @@ Delay3Cycle:
 .section .bootloader,"ax"
 ; use -WL,--section-start=.bootloader=0xXX00
 BootLoader:
-    sbi LEDPORT, LEDPIN             ; light LED dimly during bootloader
+    ;sbi LEDPORT, LEDPIN             ; light LED dimly during bootloader
     in r2, MCUSR
     sbrs r2, EXTRF
     rjmp StartApp                   ; jump to application code
 
-    ;sbi UART_PIN+1, 1               ; pulldown tx
+    sbi UART_PIN+1, 1               ; pulldown tx
     clr XL
     clr XH
     
@@ -110,22 +112,41 @@ WaitStart:
     ldi Temp, (1<<U2X0)
     st Y, Temp
     std Y+(UBRR0L - UCSR0A), XL
+    ldi RXEN_TXEN, (1<<RXEN0 | 1<<TXEN0)
+    std Y+(UCSR0B - UCSR0A), RXEN_TXEN
 
-    ; delay to enable UART after GET_SYNC message is over
-1:  adiw XL, 1
-    brne 1b
-    ldi Temp, (1<<RXEN0 | 1<<TXEN0)
-    std Y+(UCSR0B - UCSR0A), Temp
 
-    rcall TxByte                    ; debug UBRR calc
+    ldi STK_OK_MSG, STK_OK
+
+    ;rcall TxByte                    ; debug UBRR calc
 
 WaitSync:
     rcall RxByte                    ; read command
     cpi rxData, STK_GET_SYNC
     brne WaitSync
-    rjmp Default                    ; wait for CRC_EOP
 
 CommandLoop:
+    ; turn off Rx to ignore the rest of STK500 message
+    ldi Temp, (0<<RXEN0 | 1<<TXEN0)
+    std Y+(UCSR0B - UCSR0A), Temp
+    ; wait 65536 cycles - each loop is 4 cycles
+    ldi XH, 0xC0
+1:  adiw XL, 1
+    brne 1b
+
+    ; enable reading RWW section - ensures last spm completed before
+    ; returning STK_OK
+    ; for RWW info see ATmega88/168/328 datasheet 27.9.1
+#ifdef RWWSRE
+    ldi SpmArg, (1<<RWWSRE)|(1<<SPMEN)
+    rcall DoSPM
+#endif
+    ; turn Rx back on
+    std Y+(UCSR0B - UCSR0A), RXEN_TXEN
+    ; reply OK
+    std Y+(UDR0 - UCSR0A), STK_OK_MSG
+
+; start of new message from programmer
     rcall RxByte                    ; read command
 1:  mov Command, rxData
     ldi r26, STK_INSYNC 
@@ -150,7 +171,7 @@ GetParam:
 
 ReadSig:
     cpi Command, STK_READ_SIGN
-    brne SetDevice
+    brne Quit
     ldi r26, SIGNATURE_0
     rcall TxByte
     ldi r26, SIGNATURE_1
@@ -158,31 +179,10 @@ ReadSig:
     ldi r26, SIGNATURE_2
     rcall TxByte
 
-SetDevice:
-    cpi Command, STK_SET_DEVICE
-    brne Quit
-    ldi rxCount, 20                 ; skip next 20 bytes
-    rcall RxBytes
-
-Quit:
-    cpi Command, STK_LEAVE_PROGMODE
-    brne ProgPage
-    ldi r26, STK_OK
-    rcall TxByte                    ; reply OK
-
-    ; disable USART RX/TX then start app
-    std Y+(UCSR0B - UCSR0A), YH
-
-StartApp:
-    ;cbi UART_PIN+1, 1               ; turn off Tx
-    cbi LEDPORT, LEDPIN             ; turn off LED
-    rjmp ResetVector
-
 ProgPage:
     cpi Command, STK_PROG_PAGE
     brne ReadPage
     rcall GetPageParams
-    mov pgLen, rxWord
     cpi rxData, 'F'                 ; check for memtype flash
     brne Default                    ; only flash supported
 PageFill:
@@ -205,7 +205,6 @@ ReadPage:
     cpi Command, STK_READ_PAGE
     brne Default 
     rcall GetPageParams
-    mov pgLen, rxWord
     ; read both flash and EE, but only send memtype that was requested
     ; reduces code to one loop instead of two 
 ReadByte:
@@ -224,26 +223,7 @@ SendByte:
     brne ReadByte
 
 Default:
-    rcall RxByte
-    cpi rxData, CRC_EOP
-    brne Default                    ; read until EOP
-    ; enable reading RWW section - ensures last spm completed before
-    ; returning STK_OK
-    ; for RWW info see ATmega88/168/328 datasheet 27.9.1
-#ifdef RWWSRE
-    ldi SpmArg, (1<<RWWSRE)|(1<<SPMEN)
-    rcall DoSPM
-#endif
-    ldi r26, STK_OK
-    rcall TxByte                    ; reply OK
     rjmp CommandLoop
-
-; skip n=rxCount bytes
-RxBytes:
-    rcall RxByte
-    dec rxCount
-    brne RxBytes
-    ret
 
 ; get length and flash type for write or read page
 GetPageParams:
@@ -291,3 +271,19 @@ RxByte:
     rjmp RxByte
     ldd rxData, Y+(UDR0 - UCSR0A)
     ret
+
+Quit:
+    cpi Command, STK_LEAVE_PROGMODE
+    brne ProgPage
+    ; reply OK
+    std Y+(UDR0 - UCSR0A), STK_OK_MSG
+
+    ; disable USART RX/TX then start app
+    std Y+(UCSR0B - UCSR0A), YH
+
+StartApp:
+    cbi UART_PIN+1, 1               ; turn off Tx
+    ;cbi LEDPORT, LEDPIN             ; turn off LED
+    ;rjmp ResetVector
+    ; wrap-around to reset vector
+
