@@ -1,4 +1,4 @@
-/* picoBootSTK500 - arduino compatible bootloader
+/* picobootArduino - arduino compatible bootloader
  * Ralph Doncaster 2018 GPLv3 license
  *
  * TTL serial version with autobaud 19,200 to 115,200
@@ -16,7 +16,7 @@
  * 20180525 v2 release with autobaud - 250 bytes
  * 20200104 v2.01 reduce size
  * 20200106 v3.00-beta - bootloader timeout instead of mode toggle
- * 20200110 v3.00-b2 - size reduction to <256b
+ * 20200111 v3.00-b2 - size reduction to 256b and timing tweaks
  */
 
 /* needed for <avr/io.h> to give io constant addresses */
@@ -32,7 +32,6 @@
 #endif
 
 #define LEDPIN 5
-#define LEDPORT PORTB
 #define UART_PIN PIND
 
 #include "stk500.h"
@@ -73,15 +72,15 @@ Delay3Cycle:
 .section .bootloader,"ax"
 ; use -WL,--section-start=.bootloader=0xXX00
 BootLoader:
-    ;sbi LEDPORT, LEDPIN             ; light LED dimly during bootloader
     in r2, MCUSR
     sbrs r2, EXTRF
     rjmp StartApp                   ; jump to application code
 
     sbi UART_PIN+1, 1               ; pulldown tx
+
     clr XL
     clr XH
-    
+
     ; wait for start bit of first message
     ldi YL, 100                     ; 100 =~ 2.5s @16Mhz
 WaitStart:
@@ -93,16 +92,16 @@ WaitStart:
     brne WaitStart
     rjmp StartApp                   ; bootloader timout
 
-
     ; autobaud - times the 5 low bits in GET_SYNC 0x30 '0'
 1:  adiw XL, 1                      ; count low time
     sbis UART_PIN, 0
     rjmp 1b
     lsr XH
     ror XL
-    lsr XH
+    lsr XH                          ; XH should be 0 now
     ror XL
     lsr XL
+    adc XL, XH                      ; round up
     dec XL                          ; final UBRR value
 
     ; inialize UART IO base pointer
@@ -129,10 +128,13 @@ CommandLoop:
     ; turn off Rx to ignore the rest of STK500 message
     ldi Temp, (0<<RXEN0 | 1<<TXEN0)
     std Y+(UCSR0B - UCSR0A), Temp
-    ; wait 65536 cycles - each loop is 4 cycles
-    ldi XH, 0xC0
-1:  adiw XL, 1
-    brne 1b
+    ; longest msg is SET_DEVICE at 22 bytes; wait at least that long
+    ; loop is 7 cycles, so 7 * 256 * (UBRR + 1)  is enough
+    ldd XH, Y+(UBRR0L - UCSR0A)
+    inc XH
+1:  sbiw XL, 1                      ; 2 cycle add
+    lpm                             ; 3 cycle delay
+    brne 1b                         ; 2 cycle branch
 
     ; enable reading RWW section - ensures last spm completed before
     ; returning STK_OK
@@ -165,9 +167,8 @@ Universal:
 GetParam:
     cpi Command, STK_GET_PARAMETER
     brne ReadSig
-    ; command ignored - return dummy 0x00 for Universal/Version Param
-1:  clr r26
-    rcall TxByte
+    ; command ignored - send dummy 0x00(XH) for Universal/Version Param
+1:  std Y+(UDR0 - UCSR0A), XH
 
 ReadSig:
     cpi Command, STK_READ_SIGN
@@ -194,9 +195,10 @@ PageFill:
     subi pgLen, 2
     brne PageFill
     sbiw ZL, 2                      ; roll Z back
+    ; erase then write page
     ldi SpmArg, (1<<PGERS)|(1<<SPMEN)
     rcall DoSPM
-    ldi SpmArg, (1<<PGWRT)|(1<<SPMEN) ;write page
+    ldi SpmArg, (1<<PGWRT)|(1<<SPMEN)
     rcall DoSPM
     ; if in RWW section, page write will continue asynchronously
     ; while bootloader runs
@@ -283,7 +285,5 @@ Quit:
 
 StartApp:
     cbi UART_PIN+1, 1               ; turn off Tx
-    ;cbi LEDPORT, LEDPIN             ; turn off LED
-    ;rjmp ResetVector
     ; wrap-around to reset vector
 
