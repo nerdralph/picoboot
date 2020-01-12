@@ -1,5 +1,5 @@
 /* picobootArduino - arduino compatible bootloader
- * Ralph Doncaster 2018 GPLv3 license
+ * (c) Ralph Doncaster 2020 MIT license
  *
  * TTL serial version with autobaud 19,200 to 115,200
  * code ideas from:
