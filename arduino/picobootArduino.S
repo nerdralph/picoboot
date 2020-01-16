@@ -17,6 +17,7 @@
  * 20200104 v2.01 reduce size
  * 20200106 v3.00-beta - bootloader timeout instead of mode toggle
  * 20200111 v3.00-b2 - size reduction to 256b and timing tweaks
+ * 20200115 v3.00-rc1 improved noise immunity and portability
  */
 
 /* needed for <avr/io.h> to give io constant addresses */
@@ -45,8 +46,37 @@
 #define rxData r25
 #define rxWord r24
 
+; register definitions for mega8 & mega88/168/328 portability
+; mega88/168/328 defines UCSR0A
+#ifdef UCSR0A
+  .equiv USART_BASE, UCSR0A
+  ; define register displacements from USART_BASE
+  .equiv UBRRL_d, (UBRR0L-USART_BASE)
+  .equiv UCSRA_d, (UCSR0A-USART_BASE)
+  .equiv UCSRB_d, (UCSR0B-USART_BASE)
+  .equiv UDR_d, (UDR0-USART_BASE)
+#endif
+; mega8 defines UCSRA
+#ifdef UCSRA
+  .equiv USART_BASE, UBRRL
+  ; define register displacements from USART_BASE
+  .equiv UBRRL_d, (UBRRL-USART_BASE)
+  .equiv UCSRA_d, (UCSRA-USART_BASE)
+  .equiv UCSRB_d, (UCSRB-USART_BASE)
+  .equiv UDR_d, (UDR-USART_BASE)
+#endif
+; USART bit values are the same for mega8 & mega88/168/328
+.equiv U2XSpeed, (1<<1)
+.equiv TXEnable, (1<<3)
+.equiv RXEnable, (1<<4)
+.equiv DREmpty, 5
+.equiv RXComplete, 7
+
+; same address for SPMCR/SPMCSR
+.equiv SPMReg, 0x37
+
 .section .version
-.equ picoboot_version, 256*3
+.equiv picoboot_version, 256*3
 
 .text
 ; this will be address 0x0000 which is the reset vector
@@ -72,10 +102,7 @@ Delay3Cycle:
 .section .bootloader,"ax"
 ; use -WL,--section-start=.bootloader=0xXX00
 BootLoader:
-    in r2, MCUSR
-    sbrs r2, EXTRF
-    rjmp StartApp                   ; jump to application code
-
+    sbi UART_PIN+2, 0               ; pullup rx to improve noise immunity
     sbi UART_PIN+1, 1               ; pulldown tx
 
     clr XL
@@ -90,6 +117,7 @@ WaitStart:
     brne WaitStart
     dec YL
     brne WaitStart
+JStartApp:
     rjmp StartApp                   ; bootloader timout
 
     ; autobaud - times the 5 low bits in GET_SYNC 0x30 '0'
@@ -98,39 +126,43 @@ WaitStart:
     rjmp 1b
     lsr XH
     ror XL
-    lsr XH                          ; XH should be 0 now
+    lsr XH
     ror XL
+    lsr XH                          ; XH should be 0 now
     lsr XL
     adc XL, XH                      ; round up
     dec XL                          ; final UBRR value
+    ; UBRR 0 means noise or rx baud rate too high
+    breq JStartApp
 
     ; inialize UART IO base pointer
-    ldi YL, lo8(UCSR0A)
+    ldi YL, lo8(USART_BASE)
     clr YH
     ; initialize UART
-    ldi Temp, (1<<U2X0)
-    st Y, Temp
-    std Y+(UBRR0L - UCSR0A), XL
-    ldi RXEN_TXEN, (1<<RXEN0 | 1<<TXEN0)
-    std Y+(UCSR0B - UCSR0A), RXEN_TXEN
+    ldi Temp, U2XSpeed
+    std Y+UCSRA_d, Temp
+    std Y+UBRRL_d, XL
+    ldi RXEN_TXEN, RXEnable | TXEnable 
 
 
     ldi STK_OK_MSG, STK_OK
 
     ;rcall TxByte                    ; debug UBRR calc
 
+; in a very noisy environment the bootloader could get stuck in WaitSync
+; if a long enough low pulse is received to get past WaitStart
 WaitSync:
-    rcall RxByte                    ; read command
-    cpi rxData, STK_GET_SYNC
-    brne WaitSync
+    ;rcall RxByte                    ; read command
+    ;cpi rxData, STK_GET_SYNC
+    ;brne WaitSync
 
 CommandLoop:
     ; turn off Rx to ignore the rest of STK500 message
-    ldi Temp, (0<<RXEN0 | 1<<TXEN0)
-    std Y+(UCSR0B - UCSR0A), Temp
+    ldi Temp, TXEnable
+    std Y+UCSRB_d, Temp
     ; longest msg is SET_DEVICE at 22 bytes; wait at least that long
     ; loop is 7 cycles, so 7 * 256 * (UBRR + 1)  is enough
-    ldd XH, Y+(UBRR0L - UCSR0A)
+    ldd XH, Y+UBRRL_d
     inc XH
 1:  sbiw XL, 1                      ; 2 cycle add
     lpm                             ; 3 cycle delay
@@ -144,9 +176,9 @@ CommandLoop:
     rcall DoSPM
 #endif
     ; turn Rx back on
-    std Y+(UCSR0B - UCSR0A), RXEN_TXEN
+    std Y+UCSRB_d, RXEN_TXEN
     ; reply OK
-    std Y+(UDR0 - UCSR0A), STK_OK_MSG
+    std Y+UDR_d, STK_OK_MSG
 
 ; start of new message from programmer
     rcall RxByte                    ; read command
@@ -168,7 +200,7 @@ GetParam:
     cpi Command, STK_GET_PARAMETER
     brne ReadSig
     ; command ignored - send dummy 0x00(XH) for Universal/Version Param
-1:  std Y+(UDR0 - UCSR0A), XH
+1:  std Y+UDR_d, XH
 
 ReadSig:
     cpi Command, STK_READ_SIGN
@@ -240,10 +272,10 @@ ReadWord:                           ; read word into rxWord
     rjmp RxByte                     ; rxWord hi
 
 DoSPM:
-    in Temp, SPMCSR
+    in Temp, SPMReg
     sbrc Temp, SPMEN
     rjmp DoSPM                      ; wait for last SPM to complete
-    out SPMCSR, SpmArg
+    out SPMReg, SpmArg
     spm
     ret
 
@@ -256,10 +288,10 @@ TxByte:
     out debug_output_port, r26
     ret    
 #endif
-    ld Temp, Y
-    sbrs Temp, UDRE0
+    ldd Temp, Y+UCSRA_d
+    sbrs Temp, DREmpty
     rjmp TxByte
-    std Y+(UDR0 - UCSR0A), r26
+    std Y+UDR_d, r26
     ret
 
 ; receive byte into rxData
@@ -268,22 +300,23 @@ RxByte:
     in rxData, debug_input_port
     ret    
 #endif
-    ld Temp, Y
-    sbrs Temp, RXC0
+    ldd Temp, Y+UCSRA_d
+    sbrs Temp, RXComplete
     rjmp RxByte
-    ldd rxData, Y+(UDR0 - UCSR0A)
+    ldd rxData, Y+UDR_d
     ret
 
 Quit:
     cpi Command, STK_LEAVE_PROGMODE
     brne ProgPage
     ; reply OK
-    std Y+(UDR0 - UCSR0A), STK_OK_MSG
+    std Y+UDR_d, STK_OK_MSG
 
     ; disable USART RX/TX then start app
-    std Y+(UCSR0B - UCSR0A), YH
+    std Y+UCSRB_d, YH
 
 StartApp:
+    cbi UART_PIN+2, 0               ; turn off rx pullup
     cbi UART_PIN+1, 1               ; turn off Tx
     ; wrap-around to reset vector
 
